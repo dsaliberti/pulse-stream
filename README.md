@@ -19,6 +19,8 @@ CoreBluetooth peripherals cannot directly connect to or disconnect a central. Th
 
 The iOS app uses the Composable Architecture to scan for the Heart Rate Service, connect to the Mac, subscribe to Heart Rate Measurement notifications, decode them through `BluetoothHealth`, and display the live BPM. Its CoreBluetooth central is exposed as a controllable dependency so reducer tests run without BLE hardware.
 
+Unexpected connection loss enters a bounded recovery policy with one-, two-, and four-second backoff. Each attempt has a finite discovery timeout, can be cancelled by the user, and explicitly stops its underlying CoreBluetooth work. After recovery is exhausted, the app remains idle until the user starts a new scan.
+
 ## Run
 
 Open `PulseStream.xcworkspace` in an Xcode version that includes the iOS 26 SDK. Run the `HeartRateBroadcaster` scheme on **My Mac**, then run the `PulseStream` scheme on a physical iPhone. The workspace contains both native apps and their local Swift packages.

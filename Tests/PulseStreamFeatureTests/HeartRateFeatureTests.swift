@@ -65,39 +65,162 @@ struct HeartRateFeatureTests {
     expectNoDifference(store.state, expectedState)
   }
 
-  @Test("Clears a stale measurement when disconnected")
+  @Test("Retries an unexpected disconnection after one second")
   @MainActor
-  func disconnectClearsMeasurement() async {
+  func unexpectedDisconnectRetries() async {
+    let clock = TestClock()
+    let scanCalls = CallCounter()
     var state = HeartRateFeature.State()
     state.beatsPerMinute = 72
     state.connection = .connected(name: "PulseStream Mac")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.heartRateClient.scan = {
+        await scanCalls.increment()
+      }
     }
 
     await store.send(.eventReceived(.disconnected)) {
       $0.beatsPerMinute = nil
-      $0.connection = .disconnected
+      $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
+      $0.retryAttempt = 1
     }
-    var expectedState = HeartRateFeature.State()
-    expectedState.connection = .disconnected
-    expectNoDifference(store.state, expectedState)
+
+    await clock.advance(by: .seconds(1))
+    await store.receive(\.retryDelayElapsed)
+    await store.send(.eventReceived(.connected(name: "PulseStream Mac"))) {
+      $0.connection = .connected(name: "PulseStream Mac")
+      $0.retryAttempt = 0
+    }
+    await store.finish()
+
+    let scanCallCount = await scanCalls.value
+    #expect(scanCallCount == 1)
   }
 
-  @Test("Reports failures without retaining a stale measurement")
+  @Test("Times out scans and exhausts the bounded recovery policy")
   @MainActor
-  func failureClearsMeasurement() async {
+  func scanTimeoutExhaustsRecovery() async {
+    let cancelCalls = CallCounter()
+    let clock = TestClock()
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.heartRateClient.cancelConnectionAttempt = {
+        await cancelCalls.increment()
+      }
+    }
+
+    await store.send(.eventReceived(.disconnected)) {
+      $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
+      $0.retryAttempt = 1
+    }
+
+    await clock.advance(by: .seconds(1))
+    await store.receive(\.retryDelayElapsed)
+    await clock.advance(by: .seconds(5))
+    await store.receive(\.recoveryAttemptTimedOut) {
+      $0.connection = .reconnecting(attempt: 2, maximumAttempts: 3, delaySeconds: 2)
+      $0.retryAttempt = 2
+    }
+
+    await clock.advance(by: .seconds(2))
+    await store.receive(\.retryDelayElapsed)
+    await clock.advance(by: .seconds(5))
+    await store.receive(\.recoveryAttemptTimedOut) {
+      $0.connection = .reconnecting(attempt: 3, maximumAttempts: 3, delaySeconds: 4)
+      $0.retryAttempt = 3
+    }
+
+    await clock.advance(by: .seconds(4))
+    await store.receive(\.retryDelayElapsed)
+    await clock.advance(by: .seconds(5))
+    await store.receive(\.recoveryAttemptTimedOut) {
+      $0.connection = .failed(.reconnectionExhausted)
+    }
+    await store.finish()
+
+    let cancelCallCount = await cancelCalls.value
+    #expect(cancelCallCount == 3)
+  }
+
+  @Test("Stops after three failed recovery attempts")
+  @MainActor
+  func recoveryExhaustion() async {
+    let clock = TestClock()
     var state = HeartRateFeature.State()
     state.beatsPerMinute = 72
     state.connection = .connected(name: "PulseStream Mac")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
     }
 
-    await store.send(.eventReceived(.failed(message: "Connection lost"))) {
+    await store.send(.eventReceived(.failed(.connectionFailed(description: "Connection lost")))) {
       $0.beatsPerMinute = nil
-      $0.connection = .failed(message: "Connection lost")
+      $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
+      $0.retryAttempt = 1
     }
+
+    await clock.advance(by: .seconds(1))
+    await store.receive(\.retryDelayElapsed)
+
+    await store.send(.eventReceived(.failed(.connectionFailed(description: nil)))) {
+      $0.connection = .reconnecting(attempt: 2, maximumAttempts: 3, delaySeconds: 2)
+      $0.retryAttempt = 2
+    }
+
+    await clock.advance(by: .seconds(2))
+    await store.receive(\.retryDelayElapsed)
+
+    await store.send(.eventReceived(.failed(.connectionFailed(description: nil)))) {
+      $0.connection = .reconnecting(attempt: 3, maximumAttempts: 3, delaySeconds: 4)
+      $0.retryAttempt = 3
+    }
+
+    await clock.advance(by: .seconds(4))
+    await store.receive(\.retryDelayElapsed)
+
+    await store.send(.eventReceived(.failed(.connectionFailed(description: nil)))) {
+      $0.connection = .failed(.reconnectionExhausted)
+    }
+    await store.finish()
+  }
+
+  @Test("A manual disconnect cancels recovery")
+  @MainActor
+  func manualDisconnectCancelsRecovery() async {
+    let clock = TestClock()
+    let disconnectCalls = CallCounter()
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.heartRateClient.disconnect = {
+        await disconnectCalls.increment()
+      }
+    }
+
+    await store.send(.eventReceived(.disconnected)) {
+      $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
+      $0.retryAttempt = 1
+    }
+
+    await store.send(.disconnectButtonTapped) {
+      $0.connection = .disconnected
+      $0.isManualDisconnectPending = true
+      $0.retryAttempt = 0
+    }
+
+    await clock.advance(by: .seconds(1))
+    await store.finish()
+
+    let disconnectCallCount = await disconnectCalls.value
+    #expect(disconnectCallCount == 1)
   }
 
   @Test("Scan button invokes the Bluetooth dependency")

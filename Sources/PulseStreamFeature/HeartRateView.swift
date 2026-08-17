@@ -66,7 +66,7 @@ public struct HeartRateView: View {
 
   private var buttonAction: HeartRateFeature.Action {
     switch store.connection {
-    case .connected, .connecting, .discovering:
+    case .connected, .connecting, .discovering, .reconnecting:
       .disconnectButtonTapped
     case .bluetoothUnavailable, .disconnected, .failed, .idle, .scanning:
       .scanButtonTapped
@@ -76,6 +76,7 @@ public struct HeartRateView: View {
   private var buttonTitle: String {
     switch store.connection {
     case .connected, .connecting, .discovering: "Disconnect"
+    case .reconnecting: "Cancel Retry"
     case .scanning: "Scan Again"
     case .bluetoothUnavailable, .disconnected, .failed, .idle: "Scan for Mac"
     }
@@ -85,7 +86,7 @@ public struct HeartRateView: View {
     switch store.connection {
     case .connected: .green
     case .failed, .bluetoothUnavailable: .red
-    case .connecting, .discovering, .scanning: .orange
+    case .connecting, .discovering, .reconnecting, .scanning: .orange
     case .disconnected, .idle: .secondary
     }
   }
@@ -94,7 +95,7 @@ public struct HeartRateView: View {
     switch store.connection {
     case .bluetoothUnavailable: "antenna.radiowaves.left.and.right.slash"
     case .connected: "checkmark.circle.fill"
-    case .connecting, .discovering: "ellipsis.circle"
+    case .connecting, .discovering, .reconnecting: "ellipsis.circle"
     case .disconnected: "xmark.circle"
     case .failed: "exclamationmark.triangle"
     case .idle: "heart"
@@ -109,8 +110,10 @@ public struct HeartRateView: View {
     case let .connecting(name): "Connecting to \(name)…"
     case .disconnected: "Disconnected"
     case let .discovering(name): "Discovering \(name)…"
-    case let .failed(message): message
+    case let .failed(failure): failure.message
     case .idle: "Ready to scan"
+    case let .reconnecting(attempt, maximumAttempts, delaySeconds):
+      "Connection lost. Retry \(attempt) of \(maximumAttempts) in \(delaySeconds)s…"
     case .scanning: "Looking for PulseStream Mac…"
     }
   }

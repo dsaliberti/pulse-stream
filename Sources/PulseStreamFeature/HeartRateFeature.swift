@@ -10,13 +10,26 @@ public struct HeartRateFeature {
       case connecting(name: String)
       case disconnected
       case discovering(name: String)
-      case failed(message: String)
+      case failed(HeartRateClient.Failure)
       case idle
+      case reconnecting(attempt: Int, maximumAttempts: Int, delaySeconds: Int)
       case scanning
+
+      var isRecoveryInProgress: Bool {
+        switch self {
+        case .connecting, .discovering, .reconnecting, .scanning:
+          true
+        case .bluetoothUnavailable, .connected, .disconnected, .failed, .idle:
+          false
+        }
+      }
     }
 
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
+    public var retryAttempt = 0
+
+    var isManualDisconnectPending = false
 
     public init() {}
   }
@@ -24,12 +37,19 @@ public struct HeartRateFeature {
   public enum Action {
     case disconnectButtonTapped
     case eventReceived(HeartRateClient.Event)
+    case recoveryAttemptTimedOut(attempt: Int)
+    case retryDelayElapsed(attempt: Int)
     case scanButtonTapped
     case task
   }
 
-  private enum CancelID { case events }
+  private enum CancelID {
+    case attemptTimeout
+    case events
+    case retry
+  }
 
+  @Dependency(\.continuousClock) var clock
   @Dependency(\.heartRateClient) var heartRateClient
 
   public init() {}
@@ -39,27 +59,52 @@ public struct HeartRateFeature {
       let heartRateClient = self.heartRateClient
       switch action {
       case .disconnectButtonTapped:
-        return .run { _ in
-          await heartRateClient.disconnect()
-        }
+        state.beatsPerMinute = nil
+        state.connection = .disconnected
+        state.isManualDisconnectPending = true
+        state.retryAttempt = 0
+        return .merge(
+          .cancel(id: CancelID.attemptTimeout),
+          .cancel(id: CancelID.retry),
+          .run { _ in await heartRateClient.disconnect() }
+        )
 
       case let .eventReceived(event):
         switch event {
         case .bluetoothUnavailable:
           state.beatsPerMinute = nil
           state.connection = .bluetoothUnavailable
+          state.isManualDisconnectPending = false
+          state.retryAttempt = 0
+          return .merge(
+            .cancel(id: CancelID.attemptTimeout),
+            .cancel(id: CancelID.retry)
+          )
         case let .connected(name):
           state.connection = .connected(name: name)
+          state.isManualDisconnectPending = false
+          state.retryAttempt = 0
+          return .merge(
+            .cancel(id: CancelID.attemptTimeout),
+            .cancel(id: CancelID.retry)
+          )
         case let .connecting(name):
           state.connection = .connecting(name: name)
         case .disconnected:
           state.beatsPerMinute = nil
-          state.connection = .disconnected
+          if state.isManualDisconnectPending {
+            state.connection = .disconnected
+            state.isManualDisconnectPending = false
+            return .none
+          }
+          let reconnect = scheduleReconnect(state: &state)
+          return .merge(.cancel(id: CancelID.attemptTimeout), reconnect)
         case let .discovering(name):
           state.connection = .discovering(name: name)
-        case let .failed(message):
+        case .failed:
           state.beatsPerMinute = nil
-          state.connection = .failed(message: message)
+          let reconnect = scheduleReconnect(state: &state)
+          return .merge(.cancel(id: CancelID.attemptTimeout), reconnect)
         case let .measurement(measurement):
           state.beatsPerMinute = measurement.beatsPerMinute
         case .scanning:
@@ -68,10 +113,39 @@ public struct HeartRateFeature {
         }
         return .none
 
+      case let .recoveryAttemptTimedOut(attempt):
+        guard
+          state.retryAttempt == attempt,
+          state.connection.isRecoveryInProgress
+        else { return .none }
+        let reconnect = scheduleReconnect(state: &state)
+        return .merge(
+          .run { _ in await heartRateClient.cancelConnectionAttempt() },
+          reconnect
+        )
+
+      case let .retryDelayElapsed(attempt):
+        guard
+          state.retryAttempt == attempt,
+          case .reconnecting = state.connection
+        else { return .none }
+        return .merge(
+          .run { _ in await heartRateClient.scan() },
+          .run { [clock] send in
+            try await clock.sleep(for: .seconds(5))
+            await send(.recoveryAttemptTimedOut(attempt: attempt))
+          }
+          .cancellable(id: CancelID.attemptTimeout, cancelInFlight: true)
+        )
+
       case .scanButtonTapped:
-        return .run { _ in
-          await heartRateClient.scan()
-        }
+        state.isManualDisconnectPending = false
+        state.retryAttempt = 0
+        return .merge(
+          .cancel(id: CancelID.attemptTimeout),
+          .cancel(id: CancelID.retry),
+          .run { _ in await heartRateClient.scan() }
+        )
 
       case .task:
         return .run { send in
@@ -82,5 +156,27 @@ public struct HeartRateFeature {
         .cancellable(id: CancelID.events, cancelInFlight: true)
       }
     }
+  }
+
+  private func scheduleReconnect(state: inout State) -> Effect<Action> {
+    let maximumAttempts = 3
+    guard state.retryAttempt < maximumAttempts else {
+      state.connection = .failed(.reconnectionExhausted)
+      return .none
+    }
+
+    state.retryAttempt += 1
+    let attempt = state.retryAttempt
+    let delaySeconds = 1 << (attempt - 1)
+    state.connection = .reconnecting(
+      attempt: attempt,
+      maximumAttempts: maximumAttempts,
+      delaySeconds: delaySeconds
+    )
+    return .run { [clock] send in
+      try await clock.sleep(for: .seconds(delaySeconds))
+      await send(.retryDelayElapsed(attempt: attempt))
+    }
+    .cancellable(id: CancelID.retry, cancelInFlight: true)
   }
 }

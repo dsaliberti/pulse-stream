@@ -4,26 +4,61 @@ import Dependencies
 import Foundation
 
 public struct HeartRateClient: Sendable {
+  public enum Failure: Equatable, Sendable {
+    case characteristicDiscoveryFailed(description: String?)
+    case connectionFailed(description: String?)
+    case invalidMeasurement
+    case measurementUnavailable(description: String?)
+    case reconnectionExhausted
+    case serviceDiscoveryFailed(description: String?)
+    case serviceInvalidated
+    case subscriptionFailed(description: String?)
+
+    public var message: String {
+      switch self {
+      case let .characteristicDiscoveryFailed(description):
+        description ?? "Heart Rate Measurement characteristic not found"
+      case let .connectionFailed(description):
+        description ?? "Connection failed"
+      case .invalidMeasurement:
+        "Heart rate measurement could not be decoded"
+      case let .measurementUnavailable(description):
+        description ?? "Heart rate measurement was empty"
+      case .reconnectionExhausted:
+        "Could not restore the heart-rate connection"
+      case let .serviceDiscoveryFailed(description):
+        description ?? "Heart Rate Service not found"
+      case .serviceInvalidated:
+        "The Heart Rate Service changed"
+      case let .subscriptionFailed(description):
+        description ?? "Could not subscribe to heart rate measurements"
+      }
+    }
+  }
+
   public enum Event: Equatable, Sendable {
     case bluetoothUnavailable
     case connected(name: String)
     case connecting(name: String)
     case disconnected
     case discovering(name: String)
-    case failed(message: String)
+    case failed(Failure)
     case measurement(HeartRateMeasurement)
     case scanning
   }
 
+  public var cancelConnectionAttempt: @Sendable () async -> Void
   public var disconnect: @Sendable () async -> Void
   public var events: @Sendable () async -> AsyncStream<Event>
   public var scan: @Sendable () async -> Void
 
   public init(
+    cancelConnectionAttempt: @escaping @Sendable () async -> Void,
     disconnect: @escaping @Sendable () async -> Void,
     events: @escaping @Sendable () async -> AsyncStream<Event>,
     scan: @escaping @Sendable () async -> Void
   ) {
+    self.cancelConnectionAttempt = cancelConnectionAttempt
     self.disconnect = disconnect
     self.events = events
     self.scan = scan
@@ -33,6 +68,7 @@ public struct HeartRateClient: Sendable {
 extension HeartRateClient: DependencyKey {
   public static var liveValue: Self {
     Self(
+      cancelConnectionAttempt: { await LiveHeartRateCentral.shared.cancelConnectionAttempt() },
       disconnect: { await LiveHeartRateCentral.shared.disconnect() },
       events: { await LiveHeartRateCentral.shared.events() },
       scan: { await LiveHeartRateCentral.shared.scan() }
@@ -41,6 +77,7 @@ extension HeartRateClient: DependencyKey {
 
   public static var testValue: Self {
     Self(
+      cancelConnectionAttempt: {},
       disconnect: {},
       events: {
         AsyncStream { continuation in
@@ -94,6 +131,13 @@ private final class LiveHeartRateCentral: NSObject {
     centralManager.cancelPeripheralConnection(peripheral)
   }
 
+  func cancelConnectionAttempt() {
+    centralManager.stopScan()
+    guard let peripheral else { return }
+    suppressNextDisconnectEvent = true
+    centralManager.cancelPeripheralConnection(peripheral)
+  }
+
   func events() -> AsyncStream<HeartRateClient.Event> {
     AsyncStream(bufferingPolicy: .bufferingNewest(20)) { continuation in
       self.continuation?.onTermination = nil
@@ -136,9 +180,9 @@ private final class LiveHeartRateCentral: NSObject {
     )
   }
 
-  private func fail(_ message: String) {
+  private func fail(_ failure: HeartRateClient.Failure) {
     centralManager.stopScan()
-    continuation?.yield(.failed(message: message))
+    continuation?.yield(.failed(failure))
     if let peripheral {
       suppressNextDisconnectEvent = true
       centralManager.cancelPeripheralConnection(peripheral)
@@ -205,7 +249,11 @@ extension LiveHeartRateCentral: CBCentralManagerDelegate {
     Task { @MainActor [weak self] in
       guard let self, peripheral == self.peripheral else { return }
       self.peripheral = nil
-      continuation?.yield(.failed(message: error?.localizedDescription ?? "Connection failed"))
+      if suppressNextDisconnectEvent {
+        suppressNextDisconnectEvent = false
+        return
+      }
+      continuation?.yield(.failed(.connectionFailed(description: error?.localizedDescription)))
     }
   }
 
@@ -229,13 +277,31 @@ extension LiveHeartRateCentral: CBCentralManagerDelegate {
 }
 
 extension LiveHeartRateCentral: CBPeripheralDelegate {
+  nonisolated func peripheral(
+    _ peripheral: CBPeripheral,
+    didModifyServices invalidatedServices: [CBService]
+  ) {
+    let heartRateServiceID = CBUUID(string: HeartRateProfile.serviceUUID)
+    let didInvalidateHeartRateService = invalidatedServices.contains {
+      $0.uuid == heartRateServiceID
+    }
+    Task { @MainActor [weak self] in
+      guard
+        let self,
+        peripheral == self.peripheral,
+        didInvalidateHeartRateService
+      else { return }
+      fail(.serviceInvalidated)
+    }
+  }
+
   nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: (any Error)?) {
     Task { @MainActor [weak self] in
       guard let self, peripheral == self.peripheral else { return }
       guard error == nil,
         let service = peripheral.services?.first(where: { $0.uuid == Self.heartRateServiceID })
       else {
-        fail(error?.localizedDescription ?? "Heart Rate Service not found")
+        fail(.serviceDiscoveryFailed(description: error?.localizedDescription))
         return
       }
       peripheral.discoverCharacteristics([Self.measurementCharacteristicID], for: service)
@@ -254,7 +320,7 @@ extension LiveHeartRateCentral: CBPeripheralDelegate {
           $0.uuid == Self.measurementCharacteristicID
         })
       else {
-        fail(error?.localizedDescription ?? "Heart Rate Measurement characteristic not found")
+        fail(.characteristicDiscoveryFailed(description: error?.localizedDescription))
         return
       }
       peripheral.setNotifyValue(true, for: characteristic)
@@ -270,7 +336,7 @@ extension LiveHeartRateCentral: CBPeripheralDelegate {
       guard let self, peripheral == self.peripheral else { return }
       guard characteristic.uuid == Self.measurementCharacteristicID else { return }
       guard error == nil, characteristic.isNotifying else {
-        fail(error?.localizedDescription ?? "Could not subscribe to heart rate measurements")
+        fail(.subscriptionFailed(description: error?.localizedDescription))
         return
       }
       continuation?.yield(.connected(name: deviceName))
@@ -286,13 +352,13 @@ extension LiveHeartRateCentral: CBPeripheralDelegate {
       guard let self, peripheral == self.peripheral else { return }
       guard characteristic.uuid == Self.measurementCharacteristicID else { return }
       guard error == nil, let data = characteristic.value else {
-        fail(error?.localizedDescription ?? "Heart rate measurement was empty")
+        fail(.measurementUnavailable(description: error?.localizedDescription))
         return
       }
       do {
         continuation?.yield(.measurement(try HeartRateMeasurement(decoding: data)))
       } catch {
-        fail("Heart rate measurement could not be decoded")
+        fail(.invalidMeasurement)
       }
     }
   }
