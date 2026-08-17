@@ -4,6 +4,30 @@ import Foundation
 
 @MainActor
 final class HeartRatePeripheralManager: NSObject, ObservableObject {
+  enum MalformedPacket: String, CaseIterable, Identifiable {
+    case incompleteRRInterval
+    case trailingByte
+    case truncatedHeartRate
+
+    var id: Self { self }
+
+    var data: Data {
+      switch self {
+      case .incompleteRRInterval: Data([0b0001_0000, 72, 0])
+      case .trailingByte: Data([0, 72, 0xFF])
+      case .truncatedHeartRate: Data([0b0000_0001, 72])
+      }
+    }
+
+    var title: String {
+      switch self {
+      case .incompleteRRInterval: "Incomplete RR interval"
+      case .trailingByte: "Unexpected trailing byte"
+      case .truncatedHeartRate: "Truncated 16-bit BPM"
+      }
+    }
+  }
+
   enum SensorContact: String, CaseIterable, Identifiable {
     case detected
     case notDetected
@@ -53,6 +77,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   @Published var beatsPerMinute = 72
   @Published var energyExpendedKilojoules = 42
   @Published var includesEnergyExpended = false
+  @Published var malformedPacket = MalformedPacket.truncatedHeartRate
   @Published var rrIntervalCount = 1
   @Published var sensorContact = SensorContact.detected
   @Published var uses16BitHeartRate = false
@@ -123,6 +148,10 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
       }
     )
     send(measurement.encoded(format: uses16BitHeartRate ? .uint16 : .uint8))
+  }
+
+  func sendMalformedMeasurement() {
+    send(malformedPacket.data)
   }
 
   func dropSession() {

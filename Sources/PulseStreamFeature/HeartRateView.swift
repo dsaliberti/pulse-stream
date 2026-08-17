@@ -39,6 +39,8 @@ public struct HeartRateView: View {
             store.latestMeasurement.map(HeartRateMeasurementDetails.init)
           )
 
+          protocolDiagnostics
+
           recordingContent
 
           Button(buttonTitle) {
@@ -156,6 +158,25 @@ public struct HeartRateView: View {
     let minutes = store.recordingElapsedSeconds / 60
     let seconds = store.recordingElapsedSeconds % 60
     return String(format: "%d:%02d", minutes, seconds)
+  }
+
+  private var protocolDiagnostics: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Protocol diagnostics")
+        .font(.headline)
+
+      LabeledContent("Accepted packets", value: store.receivedMeasurementCount.formatted())
+      LabeledContent("Rejected packets", value: store.rejectedMeasurementCount.formatted())
+
+      if let error = store.latestMeasurementError {
+        Label(error.message, systemImage: "exclamationmark.triangle.fill")
+          .font(.footnote)
+          .foregroundStyle(.orange)
+      }
+    }
+    .padding(16)
+    .background(.quaternary, in: .rect(cornerRadius: 16))
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 
   private func measurementDetails(_ details: HeartRateMeasurementDetails?) -> some View {

@@ -49,6 +49,31 @@ struct HeartRateFeatureTests {
     )
   }
 
+  @Test("Rejects malformed measurements without interrupting the connection")
+  @MainActor
+  func rejectsMalformedMeasurementNonFatally() async {
+    var state = HeartRateFeature.State()
+    state.beatsPerMinute = 72
+    state.connection = .connected(name: "PulseStream Mac")
+    state.latestMeasurement = measurementValue(72)
+    state.receivedMeasurementCount = 1
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    }
+
+    await store.send(.eventReceived(.measurementRejected(.truncated))) {
+      $0.latestMeasurementError = .truncated
+      $0.rejectedMeasurementCount = 1
+    }
+    await store.send(.eventReceived(measurement(73))) {
+      $0.beatsPerMinute = 73
+      $0.latestMeasurement = measurementValue(73)
+      $0.receivedMeasurementCount = 2
+    }
+
+    expectNoDifference(store.state.connection, .connected(name: "PulseStream Mac"))
+  }
+
   @Test("Production persistence round-trips a recording snapshot")
   func productionPersistenceRoundTrip() async throws {
     let directory = FileManager.default.temporaryDirectory
@@ -117,6 +142,7 @@ struct HeartRateFeatureTests {
     await store.receive(\.eventReceived) {
       $0.beatsPerMinute = 72
       $0.latestMeasurement = latestMeasurement
+      $0.receivedMeasurementCount = 1
     }
 
     continuation.finish()
@@ -126,6 +152,7 @@ struct HeartRateFeatureTests {
     expectedState.beatsPerMinute = 72
     expectedState.connection = .connected(name: "PulseStream Mac")
     expectedState.latestMeasurement = latestMeasurement
+    expectedState.receivedMeasurementCount = 1
     expectNoDifference(store.state, expectedState)
   }
 
@@ -149,6 +176,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
       $0.latestMeasurement = measurementValue(70)
+      $0.receivedMeasurementCount = 1
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
@@ -157,6 +185,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(80))) {
       $0.beatsPerMinute = 80
       $0.latestMeasurement = measurementValue(80)
+      $0.receivedMeasurementCount = 2
       $0.nextSampleID = 2
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 80, id: 1, segment: 0, timestamp: now)
@@ -165,6 +194,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(90))) {
       $0.beatsPerMinute = 90
       $0.latestMeasurement = measurementValue(90)
+      $0.receivedMeasurementCount = 3
       $0.nextSampleID = 3
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 90, id: 2, segment: 0, timestamp: now)
@@ -201,6 +231,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
       $0.latestMeasurement = measurementValue(70)
+      $0.receivedMeasurementCount = 1
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
@@ -222,6 +253,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(75))) {
       $0.beatsPerMinute = 75
       $0.latestMeasurement = measurementValue(75)
+      $0.receivedMeasurementCount = 2
       $0.nextSampleID = 2
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 75, id: 1, segment: 1, timestamp: now)
@@ -252,6 +284,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(88))) {
       $0.beatsPerMinute = 88
       $0.latestMeasurement = measurementValue(88)
+      $0.receivedMeasurementCount = 1
     }
   }
 
@@ -351,6 +384,7 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(72))) {
       $0.beatsPerMinute = 72
       $0.latestMeasurement = measurementValue(72)
+      $0.receivedMeasurementCount = 1
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 72, id: 0, segment: 0, timestamp: now)

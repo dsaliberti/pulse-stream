@@ -30,10 +30,13 @@ public struct HeartRateFeature {
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
     public var latestMeasurement: HeartRateMeasurement?
+    public var latestMeasurementError: HeartRateMeasurementDecodingError?
     public var persistenceError: String?
+    public var receivedMeasurementCount = 0
     public var recording = HeartRateRecording.idle
     public var recordingElapsedSeconds = 0
     public var retryAttempt = 0
+    public var rejectedMeasurementCount = 0
     public var samples: [HeartRateSample] = []
 
     var currentSegment = 0
@@ -161,6 +164,7 @@ public struct HeartRateFeature {
         case let .measurement(measurement):
           state.beatsPerMinute = measurement.beatsPerMinute
           state.latestMeasurement = measurement
+          state.receivedMeasurementCount += 1
           if state.recording.isActive {
             state.samples.append(
               HeartRateSample(
@@ -176,6 +180,9 @@ public struct HeartRateFeature {
             }
             return persist(state.recordingSnapshot)
           }
+        case let .measurementRejected(error):
+          state.latestMeasurementError = error
+          state.rejectedMeasurementCount += 1
         case .scanning:
           state.beatsPerMinute = nil
           state.latestMeasurement = nil

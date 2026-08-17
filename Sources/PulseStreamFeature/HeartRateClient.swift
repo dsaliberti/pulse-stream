@@ -44,6 +44,7 @@ public struct HeartRateClient: Sendable {
     case discovering(name: String)
     case failed(Failure)
     case measurement(HeartRateMeasurement)
+    case measurementRejected(HeartRateMeasurementDecodingError)
     case scanning
   }
 
@@ -357,8 +358,8 @@ extension LiveHeartRateCentral: CBPeripheralDelegate {
       }
       do {
         continuation?.yield(.measurement(try HeartRateMeasurement(decoding: data)))
-      } catch {
-        fail(.invalidMeasurement)
+      } catch let error as HeartRateMeasurementDecodingError {
+        continuation?.yield(.measurementRejected(error))
       }
     }
   }

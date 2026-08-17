@@ -108,6 +108,14 @@ public enum HeartRateMeasurementDecodingError: Error, Equatable, Sendable {
   case truncated
   case invalidRRIntervals
   case unexpectedTrailingBytes
+
+  public var message: String {
+    switch self {
+    case .truncated: "Packet ended before all declared fields were present"
+    case .invalidRRIntervals: "RR interval data did not contain complete 16-bit values"
+    case .unexpectedTrailingBytes: "Packet contained bytes not declared by its flags"
+    }
+  }
 }
 
 private extension UInt16 {

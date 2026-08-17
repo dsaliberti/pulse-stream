@@ -71,6 +71,19 @@ struct ContentView: View {
         broadcaster.sendCurrentMeasurement()
       }
       .disabled(broadcaster.subscriberCount == 0)
+
+      HStack {
+        Picker("Malformed packet", selection: $broadcaster.malformedPacket) {
+          ForEach(HeartRatePeripheralManager.MalformedPacket.allCases) { packet in
+            Text(packet.title).tag(packet)
+          }
+        }
+
+        Button("Send Malformed") {
+          broadcaster.sendMalformedMeasurement()
+        }
+        .disabled(broadcaster.subscriberCount == 0)
+      }
     }
   }
 
