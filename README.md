@@ -2,7 +2,7 @@
 
 PulseStream is an end-to-end Bluetooth Low Energy experiment built with Swift and CoreBluetooth.
 
-The first executable is a macOS peripheral that publishes the Bluetooth SIG Heart Rate Service (`180D`) and sends Heart Rate Measurement notifications (`2A37`). The reusable `BluetoothHealth` library owns the standard profile identifiers and bidirectional packet codec that the broadcaster and forthcoming iOS central/client share.
+The macOS app is a peripheral that publishes the Bluetooth SIG Heart Rate Service (`180D`) and sends Heart Rate Measurement notifications (`2A37`). The reusable `BluetoothHealth` library owns the standard profile identifiers and bidirectional packet codec shared by the broadcaster and iOS central/client.
 
 ## Current milestone: broadcaster and shared codec
 
@@ -13,21 +13,20 @@ The broadcaster supports:
 - BLE subscription status;
 - CoreBluetooth notification backpressure;
 - a shared, platform-neutral Heart Rate Measurement encoder/decoder;
-- a **Drop Session** control that removes and republishes the service so the future client can exercise recovery.
+- a **Drop Session** control that removes and republishes the service so the client can exercise recovery.
 
 CoreBluetooth peripherals cannot directly connect to or disconnect a central. The iPhone client owns the connection. **Start Broadcasting** makes the Mac discoverable; **Drop Session** deliberately invalidates the published service instead of claiming to perform a central-initiated disconnect.
 
 ## Run
 
-Open `PulseStream.xcworkspace` in Xcode using the Xcode beta installation, select the `HeartRateBroadcaster` scheme, and run it on **My Mac**. The workspace contains the native macOS app project and the local `BluetoothHealth` Swift package.
+Open `PulseStream.xcworkspace` in Xcode, select the `HeartRateBroadcaster` scheme, and run it on **My Mac**. The workspace contains the native macOS app project and the local `BluetoothHealth` Swift package.
 
-The first launch may request Bluetooth access. Real end-to-end testing will use the forthcoming iOS demo on a physical iPhone.
+The first launch may request Bluetooth access. End-to-end BLE testing requires a physical iPhone.
 
-To build the native app from Terminal with the current local Xcode setup:
+To build the native app from Terminal using the active Xcode command-line tools:
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
-  xcodebuild -workspace PulseStream.xcworkspace \
+xcodebuild -workspace PulseStream.xcworkspace \
   -scheme HeartRateBroadcaster \
   -destination 'platform=macOS' build
 ```
@@ -35,7 +34,7 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
 ## Test
 
 ```sh
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer swift test
+swift test
 ```
 
 ## Planned repository shape
