@@ -1,0 +1,140 @@
+import ComposableArchitecture
+import SwiftUI
+
+public struct PulseStreamRootView: View {
+  private let store = Store(initialState: HeartRateFeature.State()) {
+    HeartRateFeature()
+  }
+
+  public init() {}
+
+  public var body: some View {
+    HeartRateView(store: store)
+  }
+}
+
+public struct HeartRateView: View {
+  @ScaledMetric(relativeTo: .largeTitle) private var beatsPerMinuteFontSize = 88
+
+  public let store: StoreOf<HeartRateFeature>
+
+  public init(store: StoreOf<HeartRateFeature>) {
+    self.store = store
+  }
+
+  public var body: some View {
+    NavigationStack {
+      VStack(spacing: 32) {
+        Spacer()
+
+        Image(systemName: "heart.fill")
+          .font(.system(size: 52))
+          .foregroundStyle(.red)
+          .symbolEffect(.pulse, options: .repeating, isActive: store.beatsPerMinute != nil)
+          .accessibilityHidden(true)
+
+        VStack(spacing: 4) {
+          Text(store.beatsPerMinute.map(String.init) ?? "--")
+            .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
+            .contentTransition(.numericText())
+          Text("BPM")
+            .font(.headline)
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+
+        Label(connectionTitle, systemImage: connectionSymbol)
+          .foregroundStyle(connectionColor)
+          .multilineTextAlignment(.center)
+
+        Spacer()
+
+        Button(buttonTitle) {
+          store.send(buttonAction)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .frame(maxWidth: .infinity)
+      }
+      .padding(24)
+      .navigationTitle("PulseStream")
+      .task {
+        await store.send(.task).finish()
+      }
+    }
+  }
+
+  private var buttonAction: HeartRateFeature.Action {
+    switch store.connection {
+    case .connected, .connecting, .discovering:
+      .disconnectButtonTapped
+    case .bluetoothUnavailable, .disconnected, .failed, .idle, .scanning:
+      .scanButtonTapped
+    }
+  }
+
+  private var buttonTitle: String {
+    switch store.connection {
+    case .connected, .connecting, .discovering: "Disconnect"
+    case .scanning: "Scan Again"
+    case .bluetoothUnavailable, .disconnected, .failed, .idle: "Scan for Mac"
+    }
+  }
+
+  private var connectionColor: Color {
+    switch store.connection {
+    case .connected: .green
+    case .failed, .bluetoothUnavailable: .red
+    case .connecting, .discovering, .scanning: .orange
+    case .disconnected, .idle: .secondary
+    }
+  }
+
+  private var connectionSymbol: String {
+    switch store.connection {
+    case .bluetoothUnavailable: "antenna.radiowaves.left.and.right.slash"
+    case .connected: "checkmark.circle.fill"
+    case .connecting, .discovering: "ellipsis.circle"
+    case .disconnected: "xmark.circle"
+    case .failed: "exclamationmark.triangle"
+    case .idle: "heart"
+    case .scanning: "antenna.radiowaves.left.and.right"
+    }
+  }
+
+  private var connectionTitle: String {
+    switch store.connection {
+    case .bluetoothUnavailable: "Bluetooth is unavailable"
+    case let .connected(name): "Streaming from \(name)"
+    case let .connecting(name): "Connecting to \(name)…"
+    case .disconnected: "Disconnected"
+    case let .discovering(name): "Discovering \(name)…"
+    case let .failed(message): message
+    case .idle: "Ready to scan"
+    case .scanning: "Looking for PulseStream Mac…"
+    }
+  }
+}
+
+#Preview {
+  HeartRateView(
+    store: Store(
+      initialState: HeartRateFeature.State(
+        beatsPerMinute: 72,
+        connection: .connected(name: "PulseStream Mac")
+      )
+    ) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.heartRateClient = .testValue
+    }
+  )
+}
+
+private extension HeartRateFeature.State {
+  init(beatsPerMinute: UInt16?, connection: Connection) {
+    self.init()
+    self.beatsPerMinute = beatsPerMinute
+    self.connection = connection
+  }
+}
