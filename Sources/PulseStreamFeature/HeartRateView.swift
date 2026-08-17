@@ -29,25 +29,15 @@ public struct HeartRateView: View {
     NavigationStack {
       ScrollView {
         VStack(spacing: 28) {
-          Image(systemName: "heart.fill")
-            .font(.system(size: 52))
-            .foregroundStyle(.red)
-            .symbolEffect(.pulse, options: .repeating, isActive: store.beatsPerMinute != nil)
-            .accessibilityHidden(true)
-
-          VStack(spacing: 4) {
-            Text(store.beatsPerMinute.map(String.init) ?? "--")
-              .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
-              .contentTransition(.numericText())
-            Text("BPM")
-              .font(.headline)
-              .foregroundStyle(.secondary)
-          }
-          .accessibilityElement(children: .combine)
+          liveHeartRate
 
           Label(connectionTitle, systemImage: connectionSymbol)
             .foregroundStyle(connectionColor)
             .multilineTextAlignment(.center)
+
+          measurementDetails(
+            store.latestMeasurement.map(HeartRateMeasurementDetails.init)
+          )
 
           recordingContent
 
@@ -136,10 +126,109 @@ public struct HeartRateView: View {
     }
   }
 
+  private var liveHeartRate: some View {
+    HStack(spacing: 20) {
+      Image(systemName: "heart.fill")
+        .font(.system(size: 52))
+        .foregroundStyle(.red)
+        .symbolEffect(.pulse, options: .repeating, isActive: store.beatsPerMinute != nil)
+        .accessibilityHidden(true)
+
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        ZStack(alignment: .trailing) {
+          Text("888")
+            .hidden()
+            .accessibilityHidden(true)
+          Text(store.beatsPerMinute.map(String.init) ?? "--")
+            .contentTransition(.numericText())
+        }
+          .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
+        Text("BPM")
+          .font(.headline)
+          .foregroundStyle(.secondary)
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .accessibilityElement(children: .combine)
+  }
+
   private var formattedRecordingDuration: String {
     let minutes = store.recordingElapsedSeconds / 60
     let seconds = store.recordingElapsedSeconds % 60
     return String(format: "%d:%02d", minutes, seconds)
+  }
+
+  private func measurementDetails(_ details: HeartRateMeasurementDetails?) -> some View {
+    let displayedDetails = details ?? HeartRateMeasurementDetails(
+      contact: .unsupported,
+      energyExpendedKilojoules: nil,
+      rrIntervalsMilliseconds: []
+    )
+
+    return VStack(alignment: .leading, spacing: 12) {
+      Text("Measurement details")
+        .font(.headline)
+        .unredacted()
+
+      LabeledContent("Sensor contact") {
+        Label(
+          contactTitle(displayedDetails.contact),
+          systemImage: contactSymbol(displayedDetails.contact)
+        )
+        .foregroundStyle(contactColor(displayedDetails.contact))
+      }
+
+      LabeledContent("Latest RR interval") {
+        Text(
+          displayedDetails.latestRRIntervalMilliseconds.map {
+            $0.formatted(.number.precision(.fractionLength(0))) + " ms"
+          } ?? "Not reported"
+        )
+        .monospacedDigit()
+      }
+
+      LabeledContent("RR intervals in packet") {
+        Text(displayedDetails.rrIntervalsMilliseconds.count.formatted())
+          .monospacedDigit()
+      }
+
+      LabeledContent("Energy expended") {
+        Text(
+          displayedDetails.energyExpendedKilojoules.map { "\($0) kJ" }
+            ?? "Not reported"
+        )
+        .monospacedDigit()
+      }
+    }
+    .padding(16)
+    .background(.quaternary, in: .rect(cornerRadius: 16))
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .redacted(reason: details == nil ? .placeholder : [])
+    .accessibilityHidden(details == nil)
+  }
+
+  private func contactTitle(_ contact: HeartRateMeasurementDetails.Contact) -> String {
+    switch contact {
+    case .detected: "Good"
+    case .notDetected: "Poor"
+    case .unsupported: "Unsupported"
+    }
+  }
+
+  private func contactSymbol(_ contact: HeartRateMeasurementDetails.Contact) -> String {
+    switch contact {
+    case .detected: "checkmark.circle.fill"
+    case .notDetected: "exclamationmark.circle.fill"
+    case .unsupported: "minus.circle"
+    }
+  }
+
+  private func contactColor(_ contact: HeartRateMeasurementDetails.Contact) -> Color {
+    switch contact {
+    case .detected: .green
+    case .notDetected: .orange
+    case .unsupported: .secondary
+    }
   }
 
   private var isConnected: Bool {

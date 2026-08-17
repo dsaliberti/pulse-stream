@@ -16,12 +16,35 @@ struct HeartRateFeatureTests {
   }
 
   private func measurement(_ beatsPerMinute: UInt16) -> HeartRateClient.Event {
-    .measurement(
-      HeartRateMeasurement(
-        beatsPerMinute: beatsPerMinute,
-        contactDetected: true,
-        energyExpended: nil,
-        rrIntervals: []
+    .measurement(measurementValue(beatsPerMinute))
+  }
+
+  private func measurementValue(_ beatsPerMinute: UInt16) -> HeartRateMeasurement {
+    HeartRateMeasurement(
+      beatsPerMinute: beatsPerMinute,
+      contactDetected: true,
+      energyExpended: nil,
+      rrIntervals: []
+    )
+  }
+
+  @Test("Derives presentation details from standard measurement fields")
+  func derivesMeasurementDetails() {
+    let details = HeartRateMeasurementDetails(
+      measurement: HeartRateMeasurement(
+        beatsPerMinute: 120,
+        contactDetected: false,
+        energyExpended: 42,
+        rrIntervals: [512, 1_024]
+      )
+    )
+
+    expectNoDifference(
+      details,
+      HeartRateMeasurementDetails(
+        contact: .notDetected,
+        energyExpendedKilojoules: 42,
+        rrIntervalsMilliseconds: [500, 1_000]
       )
     )
   }
@@ -84,18 +107,16 @@ struct HeartRateFeatureTests {
       $0.connection = .connected(name: "PulseStream Mac")
     }
 
-    continuation.yield(
-      .measurement(
-        HeartRateMeasurement(
-          beatsPerMinute: 72,
-          contactDetected: true,
-          energyExpended: nil,
-          rrIntervals: [853]
-        )
-      )
+    let latestMeasurement = HeartRateMeasurement(
+      beatsPerMinute: 72,
+      contactDetected: true,
+      energyExpended: nil,
+      rrIntervals: [853]
     )
+    continuation.yield(.measurement(latestMeasurement))
     await store.receive(\.eventReceived) {
       $0.beatsPerMinute = 72
+      $0.latestMeasurement = latestMeasurement
     }
 
     continuation.finish()
@@ -104,6 +125,7 @@ struct HeartRateFeatureTests {
     var expectedState = HeartRateFeature.State()
     expectedState.beatsPerMinute = 72
     expectedState.connection = .connected(name: "PulseStream Mac")
+    expectedState.latestMeasurement = latestMeasurement
     expectNoDifference(store.state, expectedState)
   }
 
@@ -126,6 +148,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
+      $0.latestMeasurement = measurementValue(70)
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
@@ -133,6 +156,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(80))) {
       $0.beatsPerMinute = 80
+      $0.latestMeasurement = measurementValue(80)
       $0.nextSampleID = 2
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 80, id: 1, segment: 0, timestamp: now)
@@ -140,6 +164,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(90))) {
       $0.beatsPerMinute = 90
+      $0.latestMeasurement = measurementValue(90)
       $0.nextSampleID = 3
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 90, id: 2, segment: 0, timestamp: now)
@@ -175,6 +200,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
+      $0.latestMeasurement = measurementValue(70)
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
@@ -182,6 +208,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(.disconnected)) {
       $0.beatsPerMinute = nil
+      $0.latestMeasurement = nil
       $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
       $0.currentSegment = 1
       $0.isStreamInterrupted = true
@@ -194,6 +221,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(75))) {
       $0.beatsPerMinute = 75
+      $0.latestMeasurement = measurementValue(75)
       $0.nextSampleID = 2
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 75, id: 1, segment: 1, timestamp: now)
@@ -223,6 +251,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(88))) {
       $0.beatsPerMinute = 88
+      $0.latestMeasurement = measurementValue(88)
     }
   }
 
@@ -321,6 +350,7 @@ struct HeartRateFeatureTests {
     }
     await store.send(.eventReceived(measurement(72))) {
       $0.beatsPerMinute = 72
+      $0.latestMeasurement = measurementValue(72)
       $0.nextSampleID = 1
       $0.samples.append(
         HeartRateSample(beatsPerMinute: 72, id: 0, segment: 0, timestamp: now)

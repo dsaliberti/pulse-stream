@@ -1,3 +1,4 @@
+import BluetoothHealth
 import ComposableArchitecture
 import Foundation
 
@@ -28,6 +29,7 @@ public struct HeartRateFeature {
 
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
+    public var latestMeasurement: HeartRateMeasurement?
     public var persistenceError: String?
     public var recording = HeartRateRecording.idle
     public var recordingElapsedSeconds = 0
@@ -102,6 +104,7 @@ public struct HeartRateFeature {
 
       case .disconnectButtonTapped:
         state.beatsPerMinute = nil
+        state.latestMeasurement = nil
         state.connection = .disconnected
         markStreamInterrupted(state: &state)
         state.isManualDisconnectPending = true
@@ -116,6 +119,7 @@ public struct HeartRateFeature {
         switch event {
         case .bluetoothUnavailable:
           state.beatsPerMinute = nil
+          state.latestMeasurement = nil
           state.connection = .bluetoothUnavailable
           markStreamInterrupted(state: &state)
           state.isManualDisconnectPending = false
@@ -137,6 +141,7 @@ public struct HeartRateFeature {
           state.connection = .connecting(name: name)
         case .disconnected:
           state.beatsPerMinute = nil
+          state.latestMeasurement = nil
           markStreamInterrupted(state: &state)
           if state.isManualDisconnectPending {
             state.connection = .disconnected
@@ -149,11 +154,13 @@ public struct HeartRateFeature {
           state.connection = .discovering(name: name)
         case .failed:
           state.beatsPerMinute = nil
+          state.latestMeasurement = nil
           markStreamInterrupted(state: &state)
           let reconnect = scheduleReconnect(state: &state)
           return .merge(.cancel(id: CancelID.attemptTimeout), reconnect)
         case let .measurement(measurement):
           state.beatsPerMinute = measurement.beatsPerMinute
+          state.latestMeasurement = measurement
           if state.recording.isActive {
             state.samples.append(
               HeartRateSample(
@@ -171,6 +178,7 @@ public struct HeartRateFeature {
           }
         case .scanning:
           state.beatsPerMinute = nil
+          state.latestMeasurement = nil
           state.connection = .scanning
         }
         return .none
