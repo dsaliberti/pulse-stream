@@ -43,6 +43,30 @@ struct ContentView: View {
 
       Toggle("Vary heart rate automatically", isOn: $broadcaster.variesAutomatically)
 
+      Picker("Sensor contact", selection: $broadcaster.sensorContact) {
+        ForEach(HeartRatePeripheralManager.SensorContact.allCases) { contact in
+          Text(contact.title).tag(contact)
+        }
+      }
+
+      Toggle("Encode BPM as 16-bit", isOn: $broadcaster.uses16BitHeartRate)
+
+      Stepper(
+        "RR intervals per packet: \(broadcaster.rrIntervalCount)",
+        value: $broadcaster.rrIntervalCount,
+        in: 0...4
+      )
+
+      Toggle("Include energy expended", isOn: $broadcaster.includesEnergyExpended)
+
+      if broadcaster.includesEnergyExpended {
+        Stepper(
+          "Energy expended: \(broadcaster.energyExpendedKilojoules) kJ",
+          value: $broadcaster.energyExpendedKilojoules,
+          in: 0...65_535
+        )
+      }
+
       Button("Send Measurement") {
         broadcaster.sendCurrentMeasurement()
       }

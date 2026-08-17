@@ -5,6 +5,11 @@ public enum HeartRateProfile {
   public static let measurementCharacteristicUUID = "2A37"
 }
 
+public enum HeartRateValueFormat: Equatable, Sendable {
+  case uint8
+  case uint16
+}
+
 public struct HeartRateMeasurement: Equatable, Sendable {
   public var beatsPerMinute: UInt16
   public var contactDetected: Bool?
@@ -24,7 +29,15 @@ public struct HeartRateMeasurement: Equatable, Sendable {
   }
 
   public func encoded() -> Data {
-    var flags: UInt8 = beatsPerMinute > UInt8.max ? 0b0000_0001 : 0
+    encoded(format: beatsPerMinute > UInt8.max ? .uint16 : .uint8)
+  }
+
+  public func encoded(format: HeartRateValueFormat) -> Data {
+    precondition(
+      format == .uint16 || beatsPerMinute <= UInt8.max,
+      "An 8-bit heart-rate value cannot exceed 255 BPM"
+    )
+    var flags: UInt8 = format == .uint16 ? 0b0000_0001 : 0
 
     if let contactDetected {
       flags |= 0b0000_0100
@@ -40,7 +53,7 @@ public struct HeartRateMeasurement: Equatable, Sendable {
     }
 
     var bytes = [flags]
-    if beatsPerMinute > UInt8.max {
+    if format == .uint16 {
       bytes.append(contentsOf: beatsPerMinute.littleEndianBytes)
     } else {
       bytes.append(UInt8(beatsPerMinute))

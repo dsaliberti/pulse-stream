@@ -4,6 +4,30 @@ import Foundation
 
 @MainActor
 final class HeartRatePeripheralManager: NSObject, ObservableObject {
+  enum SensorContact: String, CaseIterable, Identifiable {
+    case detected
+    case notDetected
+    case unsupported
+
+    var id: Self { self }
+
+    var title: String {
+      switch self {
+      case .detected: "Good"
+      case .notDetected: "Poor"
+      case .unsupported: "Unsupported"
+      }
+    }
+
+    var measurementValue: Bool? {
+      switch self {
+      case .detected: true
+      case .notDetected: false
+      case .unsupported: nil
+      }
+    }
+  }
+
   enum Status: Equatable {
     case bluetoothUnavailable
     case ready
@@ -27,6 +51,11 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   @Published private(set) var subscriberCount = 0
   @Published private(set) var sentMeasurementCount = 0
   @Published var beatsPerMinute = 72
+  @Published var energyExpendedKilojoules = 42
+  @Published var includesEnergyExpended = false
+  @Published var rrIntervalCount = 1
+  @Published var sensorContact = SensorContact.detected
+  @Published var uses16BitHeartRate = false
   @Published var variesAutomatically = true {
     didSet { updateAutomaticMeasurements() }
   }
@@ -82,13 +111,18 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   }
 
   func sendCurrentMeasurement() {
+    let baseRRInterval = UInt16(60 * 1_024 / max(beatsPerMinute, 1))
     let measurement = HeartRateMeasurement(
       beatsPerMinute: UInt16(clamping: beatsPerMinute),
-      contactDetected: true,
-      energyExpended: nil,
-      rrIntervals: [UInt16(60 * 1_024 / max(beatsPerMinute, 1))]
+      contactDetected: sensorContact.measurementValue,
+      energyExpended: includesEnergyExpended
+        ? UInt16(clamping: energyExpendedKilojoules)
+        : nil,
+      rrIntervals: (0..<rrIntervalCount).map { index in
+        baseRRInterval &+ UInt16(index * 8)
+      }
     )
-    send(measurement.encoded())
+    send(measurement.encoded(format: uses16BitHeartRate ? .uint16 : .uint8))
   }
 
   func dropSession() {

@@ -39,6 +39,21 @@ struct HeartRateMeasurementTests {
     #expect(try HeartRateMeasurement(decoding: data) == measurement)
   }
 
+  @Test("Explicitly encodes an ordinary BPM value as 16-bit")
+  func explicitSixteenBitHeartRate() throws {
+    let measurement = HeartRateMeasurement(
+      beatsPerMinute: 72,
+      contactDetected: nil,
+      energyExpended: nil,
+      rrIntervals: []
+    )
+
+    let data = measurement.encoded(format: .uint16)
+
+    #expect(Array(data) == [0b0000_0001, 72, 0])
+    #expect(try HeartRateMeasurement(decoding: data) == measurement)
+  }
+
   @Test("Decodes multiple RR intervals")
   func multipleRRIntervals() throws {
     let measurement = try HeartRateMeasurement(
