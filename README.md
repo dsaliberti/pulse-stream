@@ -21,6 +21,8 @@ The iOS app uses the Composable Architecture to scan for the Heart Rate Service,
 
 Unexpected connection loss enters a bounded recovery policy with one-, two-, and four-second backoff. Each attempt has a finite discovery timeout, can be cancelled by the user, and explicitly stops its underlying CoreBluetooth work. After recovery is exhausted, the app remains idle until the user starts a new scan.
 
+The client can record timestamped measurements into a bounded in-memory session and render them with Swift Charts. It derives live minimum, average, and maximum BPM statistics while keeping recording lifecycle separate from the BLE connection. A recovered connection continues the active recording in a new chart segment so the interruption remains visible rather than implying continuous data.
+
 ## Run
 
 Open `PulseStream.xcworkspace` in an Xcode version that includes the iOS 26 SDK. Run the `HeartRateBroadcaster` scheme on **My Mac**, then run the `PulseStream` scheme on a physical iPhone. The workspace contains both native apps and their local Swift packages.

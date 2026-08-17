@@ -1,3 +1,4 @@
+import Charts
 import ComposableArchitecture
 import SwiftUI
 
@@ -24,44 +25,103 @@ public struct HeartRateView: View {
 
   public var body: some View {
     NavigationStack {
-      VStack(spacing: 32) {
-        Spacer()
+      ScrollView {
+        VStack(spacing: 28) {
+          Image(systemName: "heart.fill")
+            .font(.system(size: 52))
+            .foregroundStyle(.red)
+            .symbolEffect(.pulse, options: .repeating, isActive: store.beatsPerMinute != nil)
+            .accessibilityHidden(true)
 
-        Image(systemName: "heart.fill")
-          .font(.system(size: 52))
-          .foregroundStyle(.red)
-          .symbolEffect(.pulse, options: .repeating, isActive: store.beatsPerMinute != nil)
-          .accessibilityHidden(true)
+          VStack(spacing: 4) {
+            Text(store.beatsPerMinute.map(String.init) ?? "--")
+              .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
+              .contentTransition(.numericText())
+            Text("BPM")
+              .font(.headline)
+              .foregroundStyle(.secondary)
+          }
+          .accessibilityElement(children: .combine)
 
-        VStack(spacing: 4) {
-          Text(store.beatsPerMinute.map(String.init) ?? "--")
-            .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
-            .contentTransition(.numericText())
-          Text("BPM")
-            .font(.headline)
-            .foregroundStyle(.secondary)
+          Label(connectionTitle, systemImage: connectionSymbol)
+            .foregroundStyle(connectionColor)
+            .multilineTextAlignment(.center)
+
+          recordingContent
+
+          Button(buttonTitle) {
+            store.send(buttonAction)
+          }
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .frame(maxWidth: .infinity)
         }
-        .accessibilityElement(children: .combine)
-
-        Label(connectionTitle, systemImage: connectionSymbol)
-          .foregroundStyle(connectionColor)
-          .multilineTextAlignment(.center)
-
-        Spacer()
-
-        Button(buttonTitle) {
-          store.send(buttonAction)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .frame(maxWidth: .infinity)
+        .padding(24)
       }
-      .padding(24)
       .navigationTitle("PulseStream")
       .task {
         await store.send(.task).finish()
       }
     }
+  }
+
+  @ViewBuilder
+  private var recordingContent: some View {
+    VStack(spacing: 16) {
+      if !store.samples.isEmpty {
+        Chart(store.samples) { sample in
+          LineMark(
+            x: .value("Time", sample.timestamp),
+            y: .value("BPM", sample.beatsPerMinute),
+            series: .value("Connection segment", sample.segment)
+          )
+          .foregroundStyle(.red)
+          .interpolationMethod(.catmullRom)
+        }
+        .chartLegend(.hidden)
+        .frame(height: 180)
+        .accessibilityLabel("Recorded heart rate chart")
+
+        if let statistics = store.statistics {
+          HStack {
+            statistic(title: "Minimum", value: String(statistics.minimum))
+            Spacer()
+            statistic(
+              title: "Average",
+              value: statistics.average.formatted(.number.precision(.fractionLength(0)))
+            )
+            Spacer()
+            statistic(title: "Maximum", value: String(statistics.maximum))
+          }
+        }
+      }
+
+      Button(store.recording.isActive ? "Stop Recording" : "Start Recording") {
+        store.send(
+          store.recording.isActive
+            ? .stopRecordingButtonTapped
+            : .startRecordingButtonTapped
+        )
+      }
+      .buttonStyle(.bordered)
+      .controlSize(.large)
+      .disabled(!store.recording.isActive && !isConnected)
+    }
+  }
+
+  private var isConnected: Bool {
+    if case .connected = store.connection { true } else { false }
+  }
+
+  private func statistic(title: String, value: String) -> some View {
+    VStack(spacing: 2) {
+      Text(value)
+        .font(.title3.monospacedDigit().bold())
+      Text(title)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .accessibilityElement(children: .combine)
   }
 
   private var buttonAction: HeartRateFeature.Action {

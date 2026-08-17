@@ -1,4 +1,5 @@
 import ComposableArchitecture
+import Foundation
 
 @Reducer
 public struct HeartRateFeature {
@@ -27,9 +28,18 @@ public struct HeartRateFeature {
 
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
+    public var recording = HeartRateRecording.idle
     public var retryAttempt = 0
+    public var samples: [HeartRateSample] = []
 
+    var currentSegment = 0
     var isManualDisconnectPending = false
+    var isStreamInterrupted = false
+    var nextSampleID = 0
+
+    public var statistics: HeartRateStatistics? {
+      HeartRateStatistics(samples: samples)
+    }
 
     public init() {}
   }
@@ -40,6 +50,8 @@ public struct HeartRateFeature {
     case recoveryAttemptTimedOut(attempt: Int)
     case retryDelayElapsed(attempt: Int)
     case scanButtonTapped
+    case startRecordingButtonTapped
+    case stopRecordingButtonTapped
     case task
   }
 
@@ -50,6 +62,7 @@ public struct HeartRateFeature {
   }
 
   @Dependency(\.continuousClock) var clock
+  @Dependency(\.date.now) var now
   @Dependency(\.heartRateClient) var heartRateClient
 
   public init() {}
@@ -61,6 +74,7 @@ public struct HeartRateFeature {
       case .disconnectButtonTapped:
         state.beatsPerMinute = nil
         state.connection = .disconnected
+        markStreamInterrupted(state: &state)
         state.isManualDisconnectPending = true
         state.retryAttempt = 0
         return .merge(
@@ -74,6 +88,7 @@ public struct HeartRateFeature {
         case .bluetoothUnavailable:
           state.beatsPerMinute = nil
           state.connection = .bluetoothUnavailable
+          markStreamInterrupted(state: &state)
           state.isManualDisconnectPending = false
           state.retryAttempt = 0
           return .merge(
@@ -82,6 +97,7 @@ public struct HeartRateFeature {
           )
         case let .connected(name):
           state.connection = .connected(name: name)
+          state.isStreamInterrupted = false
           state.isManualDisconnectPending = false
           state.retryAttempt = 0
           return .merge(
@@ -92,6 +108,7 @@ public struct HeartRateFeature {
           state.connection = .connecting(name: name)
         case .disconnected:
           state.beatsPerMinute = nil
+          markStreamInterrupted(state: &state)
           if state.isManualDisconnectPending {
             state.connection = .disconnected
             state.isManualDisconnectPending = false
@@ -103,10 +120,25 @@ public struct HeartRateFeature {
           state.connection = .discovering(name: name)
         case .failed:
           state.beatsPerMinute = nil
+          markStreamInterrupted(state: &state)
           let reconnect = scheduleReconnect(state: &state)
           return .merge(.cancel(id: CancelID.attemptTimeout), reconnect)
         case let .measurement(measurement):
           state.beatsPerMinute = measurement.beatsPerMinute
+          if state.recording.isActive {
+            state.samples.append(
+              HeartRateSample(
+                beatsPerMinute: measurement.beatsPerMinute,
+                id: state.nextSampleID,
+                segment: state.currentSegment,
+                timestamp: now
+              )
+            )
+            state.nextSampleID += 1
+            if state.samples.count > 3_600 {
+              state.samples.removeFirst(state.samples.count - 3_600)
+            }
+          }
         case .scanning:
           state.beatsPerMinute = nil
           state.connection = .scanning
@@ -147,6 +179,20 @@ public struct HeartRateFeature {
           .run { _ in await heartRateClient.scan() }
         )
 
+      case .startRecordingButtonTapped:
+        guard case .connected = state.connection else { return .none }
+        state.currentSegment = 0
+        state.isStreamInterrupted = false
+        state.nextSampleID = 0
+        state.recording = .active(startedAt: now)
+        state.samples.removeAll(keepingCapacity: true)
+        return .none
+
+      case .stopRecordingButtonTapped:
+        guard case let .active(startedAt) = state.recording else { return .none }
+        state.recording = .finished(startedAt: startedAt, endedAt: now)
+        return .none
+
       case .task:
         return .run { send in
           for await event in await heartRateClient.events() {
@@ -156,6 +202,12 @@ public struct HeartRateFeature {
         .cancellable(id: CancelID.events, cancelInFlight: true)
       }
     }
+  }
+
+  private func markStreamInterrupted(state: inout State) {
+    guard state.recording.isActive, !state.isStreamInterrupted else { return }
+    state.currentSegment += 1
+    state.isStreamInterrupted = true
   }
 
   private func scheduleReconnect(state: inout State) -> Effect<Action> {

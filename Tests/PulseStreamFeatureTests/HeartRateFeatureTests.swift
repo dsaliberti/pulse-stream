@@ -15,6 +15,17 @@ struct HeartRateFeatureTests {
     }
   }
 
+  private func measurement(_ beatsPerMinute: UInt16) -> HeartRateClient.Event {
+    .measurement(
+      HeartRateMeasurement(
+        beatsPerMinute: beatsPerMinute,
+        contactDetected: true,
+        energyExpended: nil,
+        rrIntervals: []
+      )
+    )
+  }
+
   @Test("Streams connection state and measurements")
   @MainActor
   func streamsMeasurements() async {
@@ -63,6 +74,116 @@ struct HeartRateFeatureTests {
     expectedState.beatsPerMinute = 72
     expectedState.connection = .connected(name: "PulseStream Mac")
     expectNoDifference(store.state, expectedState)
+  }
+
+  @Test("Records timestamped samples and derives statistics")
+  @MainActor
+  func recordsSamplesAndStatistics() async {
+    let now = Date(timeIntervalSince1970: 1_000)
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.date.now = now
+    }
+
+    await store.send(.startRecordingButtonTapped) {
+      $0.recording = .active(startedAt: now)
+    }
+    await store.send(.eventReceived(measurement(70))) {
+      $0.beatsPerMinute = 70
+      $0.nextSampleID = 1
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
+      )
+    }
+    await store.send(.eventReceived(measurement(80))) {
+      $0.beatsPerMinute = 80
+      $0.nextSampleID = 2
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 80, id: 1, segment: 0, timestamp: now)
+      )
+    }
+    await store.send(.eventReceived(measurement(90))) {
+      $0.beatsPerMinute = 90
+      $0.nextSampleID = 3
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 90, id: 2, segment: 0, timestamp: now)
+      )
+    }
+
+    expectNoDifference(
+      store.state.statistics,
+      HeartRateStatistics(average: 80, maximum: 90, minimum: 70)
+    )
+  }
+
+  @Test("Preserves a recording across a connection interruption")
+  @MainActor
+  func recordingPreservesConnectionGap() async {
+    let clock = TestClock()
+    let now = Date(timeIntervalSince1970: 1_000)
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.date.now = now
+    }
+
+    await store.send(.startRecordingButtonTapped) {
+      $0.recording = .active(startedAt: now)
+    }
+    await store.send(.eventReceived(measurement(70))) {
+      $0.beatsPerMinute = 70
+      $0.nextSampleID = 1
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 70, id: 0, segment: 0, timestamp: now)
+      )
+    }
+    await store.send(.eventReceived(.disconnected)) {
+      $0.beatsPerMinute = nil
+      $0.connection = .reconnecting(attempt: 1, maximumAttempts: 3, delaySeconds: 1)
+      $0.currentSegment = 1
+      $0.isStreamInterrupted = true
+      $0.retryAttempt = 1
+    }
+    await store.send(.eventReceived(.connected(name: "PulseStream Mac"))) {
+      $0.connection = .connected(name: "PulseStream Mac")
+      $0.isStreamInterrupted = false
+      $0.retryAttempt = 0
+    }
+    await store.send(.eventReceived(measurement(75))) {
+      $0.beatsPerMinute = 75
+      $0.nextSampleID = 2
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 75, id: 1, segment: 1, timestamp: now)
+      )
+    }
+    await store.finish()
+  }
+
+  @Test("Stops recording without stopping the live measurement")
+  @MainActor
+  func stopsRecording() async {
+    let now = Date(timeIntervalSince1970: 1_000)
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    state.recording = .active(startedAt: now)
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.date.now = now
+    }
+
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(startedAt: now, endedAt: now)
+    }
+    await store.send(.eventReceived(measurement(88))) {
+      $0.beatsPerMinute = 88
+    }
   }
 
   @Test("Retries an unexpected disconnection after one second")
