@@ -1,35 +1,124 @@
 # PulseStream
 
-PulseStream is an end-to-end Bluetooth Low Energy reference implementation built with Swift, SwiftUI, CoreBluetooth, and the Composable Architecture.
+PulseStream is an end-to-end Bluetooth Low Energy showcase built with Swift 6,
+SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
+macOS peripheral publishes live heart-rate notifications, while a native iOS
+central discovers, connects, records, restores, and diagnoses the stream.
 
-The macOS app is a peripheral that publishes the Bluetooth SIG Heart Rate Service (`180D`) and sends Heart Rate Measurement notifications (`2A37`). The reusable `BluetoothHealth` library owns the standard profile identifiers and bidirectional packet codec shared by the broadcaster and iOS central/client.
+The project uses the Bluetooth SIG Heart Rate Service (`180D`) and Heart Rate
+Measurement characteristic (`2A37`), so its packet format and optional fields
+match real heart-rate sensors rather than a custom protocol.
 
-## Current milestone: end-to-end heart rate
+## Highlights
 
-The broadcaster supports:
+### Reliable BLE lifecycle
 
-- standards-based heart-rate packets;
-- adjustable or automatically varying BPM;
-- BLE subscription status;
-- CoreBluetooth notification backpressure;
-- a shared, platform-neutral Heart Rate Measurement encoder/decoder;
-- a **Drop Session** control that removes and republishes the service so the client can exercise recovery.
+- Filtered discovery for the standard Heart Rate Service
+- Connection, service discovery, characteristic discovery, and notification subscription
+- Bounded recovery with one-, two-, and four-second backoff
+- Five-second discovery timeout for every recovery attempt
+- Explicit cancellation and terminal failure states
+- Generic Attribute Profile (GATT) service invalidation handling
+- Peripheral notification backpressure handling
 
-CoreBluetooth peripherals cannot directly connect to or disconnect a central. The iPhone client owns the connection. **Start Broadcasting** makes the Mac discoverable; **Drop Session** deliberately invalidates the published service instead of claiming to perform a central-initiated disconnect.
+### Heart-rate recording
 
-The iOS app uses the Composable Architecture to scan for the Heart Rate Service, connect to the Mac, subscribe to Heart Rate Measurement notifications, decode them through `BluetoothHealth`, and display the live BPM. Its CoreBluetooth central is exposed as a controllable dependency so reducer tests run without BLE hardware.
+- Timestamped, bounded sample history rendered with Swift Charts
+- Minimum, average, and maximum BPM statistics
+- Recording duration driven by controllable clock and date dependencies
+- Separate BLE and recording lifecycles
+- Visible chart segmentation across connection interruptions
+- Active and completed session persistence using Point-Free Sharing file storage
+- Foreground/background synchronization and immediate launch restoration
 
-Unexpected connection loss enters a bounded recovery policy with one-, two-, and four-second backoff. Each attempt has a finite discovery timeout, can be cancelled by the user, and explicitly stops its underlying CoreBluetooth work. After recovery is exhausted, the app remains idle until the user starts a new scan.
+### Protocol lab
 
-The client can record timestamped measurements into a bounded in-memory session and render them with Swift Charts. It derives live minimum, average, and maximum BPM statistics while keeping recording lifecycle separate from the BLE connection. A recovered connection continues the active recording in a new chart segment so the interruption remains visible rather than implying continuous data.
+- Standard 8-bit and 16-bit BPM representations
+- Sensor-contact support and good/poor contact states
+- Optional accumulated energy expenditure
+- Zero-to-multiple RR intervals per notification
+- Millisecond conversion for beat-to-beat RR timing
+- Deliberate malformed-packet injection from macOS
+- Typed, non-fatal decoder failures on iOS
+- Accepted/rejected packet counters with actionable diagnostics
 
-## Run
+Malformed notifications are rejected individually. They do not discard the
+last valid measurement, interrupt an active recording, or force a healthy BLE
+connection to restart.
 
-Open `PulseStream.xcworkspace` in an Xcode version that includes the iOS 26 SDK. Run the `HeartRateBroadcaster` scheme on **My Mac**, then run the `PulseStream` scheme on a physical iPhone. The workspace contains both native apps and their local Swift packages.
+## Architecture
 
-The first launch may request Bluetooth access. End-to-end BLE testing requires a physical iPhone.
+```text
+HeartRateBroadcaster (macOS peripheral)
+        │  CoreBluetooth notifications: 180D / 2A37
+        ▼
+LiveHeartRateCentral (iOS dependency)
+        │  typed async events
+        ▼
+HeartRateFeature (TCA reducer)
+        ├── connection and recovery state
+        ├── recording lifecycle
+        ├── protocol diagnostics
+        └── Point-Free Sharing persistence
+                │
+                ▼
+        HeartRateView (SwiftUI + Charts)
 
-To build both native apps from Terminal using the active Xcode command-line tools:
+BluetoothHealth (shared Swift package)
+        └── profile UUIDs and bidirectional packet codec
+```
+
+CoreBluetooth is isolated behind a controllable dependency. The reducer owns
+application policy, while `BluetoothHealth` owns byte-level protocol behavior.
+This keeps BLE hardware out of deterministic feature tests.
+
+## Requirements
+
+- A Mac with Bluetooth enabled
+- Xcode with the iOS 26 SDK
+- A physical iPhone running iOS 26 with Bluetooth enabled
+
+The iOS Simulator cannot perform this Mac-peripheral-to-iPhone-central test.
+
+## Run on devices
+
+1. Open `PulseStream.xcworkspace` in Xcode.
+2. Select the `HeartRateBroadcaster` scheme and run it on **My Mac**.
+3. Press **Start Broadcasting** in the Mac app.
+4. Select the `PulseStream` scheme and a physical iPhone.
+5. In the iOS target's **Signing & Capabilities** settings, select your Apple
+   Developer team. PulseStream intentionally does not commit a personal
+   `DEVELOPMENT_TEAM` identifier.
+6. Run the iOS app, approve Bluetooth access, and press **Scan for Mac**.
+
+The iOS target declares the `bluetooth-central` background mode. A valid local
+code-signing configuration is therefore required when installing it on a device.
+The macOS broadcaster does not require an Apple Developer team for local use;
+Xcode can sign it with **Sign to Run Locally**.
+
+CoreBluetooth peripherals cannot directly disconnect a central. The Mac app's
+**Drop Session** button removes and republishes its Generic Attribute Profile
+(GATT) service—the standard BLE structure containing services and
+characteristics—to exercise the client's real invalidation and recovery path.
+
+## Protocol testing
+
+While connected, the Mac app can vary:
+
+- automatic or manual BPM;
+- 8-bit or 16-bit encoding;
+- sensor contact;
+- RR interval count;
+- energy expenditure;
+- malformed packet category.
+
+The iOS measurement and diagnostics cards update without requiring a new
+connection. Malformed packets increment the rejected count, display their typed
+reason, and allow the next valid notification through normally.
+
+## Build from Terminal
+
+Commands use the currently selected stable Xcode command-line tools:
 
 ```sh
 xcodebuild -workspace PulseStream.xcworkspace \
@@ -42,25 +131,34 @@ xcodebuild -workspace PulseStream.xcworkspace \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-## Test
+## Tests
 
 ```sh
 swift test
 ```
 
-## Repository shape
+The suite covers packet encoding/decoding, optional fields, malformed data,
+connection recovery, cancellation, timeouts, recording, persistence, lifecycle
+restoration, protocol presentation, and non-fatal packet rejection.
+
+## Repository structure
 
 ```text
 PulseStream
-├── PulseStream.xcworkspace
+├── Apps
+│   ├── HeartRateBroadcaster    # native macOS CoreBluetooth peripheral
+│   └── PulseStream             # native iOS application entry point
+├── Sources
+│   ├── BluetoothHealth         # shared Heart Rate Service codec
+│   └── PulseStreamFeature      # TCA domain, BLE dependency, persistence, UI
+├── Tests
+│   ├── BluetoothHealthTests
+│   └── PulseStreamFeatureTests
 ├── PulseStream.xcodeproj
-├── Apps/HeartRateBroadcaster (native macOS app)
-├── Apps/PulseStream (native iOS app)
-├── BluetoothHealth package
-│   └── heart-rate profile and packet codec
-├── PulseStreamFeature package
-│   ├── TCA feature and SwiftUI view
-│   ├── injectable CoreBluetooth central
-│   └── deterministic reducer tests
-└── package and feature tests
+├── PulseStream.xcworkspace
+└── Package.swift
 ```
+
+## License
+
+PulseStream is available under the MIT License.
