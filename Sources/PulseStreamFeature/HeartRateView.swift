@@ -1,5 +1,6 @@
 import Charts
 import ComposableArchitecture
+import Foundation
 import SwiftUI
 
 public struct PulseStreamRootView: View {
@@ -15,6 +16,7 @@ public struct PulseStreamRootView: View {
 }
 
 public struct HeartRateView: View {
+  @Environment(\.scenePhase) private var scenePhase
   @ScaledMetric(relativeTo: .largeTitle) private var beatsPerMinuteFontSize = 88
 
   public let store: StoreOf<HeartRateFeature>
@@ -62,12 +64,31 @@ public struct HeartRateView: View {
       .task {
         await store.send(.task).finish()
       }
+      .onChange(of: scenePhase) { _, scenePhase in
+        scenePhaseChanged(scenePhase)
+      }
     }
   }
 
   @ViewBuilder
   private var recordingContent: some View {
     VStack(spacing: 16) {
+      if store.recording != .idle {
+        HStack {
+          Label(
+            store.recording.isActive ? "Recording" : "Recorded",
+            systemImage: store.recording.isActive ? "record.circle.fill" : "checkmark.circle"
+          )
+          .foregroundStyle(store.recording.isActive ? .red : .secondary)
+          Spacer()
+          Text(formattedRecordingDuration)
+            .font(.body.monospacedDigit())
+          Text("\(store.samples.count) samples")
+            .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
+      }
+
       if !store.samples.isEmpty {
         Chart(store.samples) { sample in
           LineMark(
@@ -106,7 +127,19 @@ public struct HeartRateView: View {
       .buttonStyle(.bordered)
       .controlSize(.large)
       .disabled(!store.recording.isActive && !isConnected)
+
+      if let persistenceError = store.persistenceError {
+        Label(persistenceError, systemImage: "exclamationmark.triangle")
+          .font(.footnote)
+          .foregroundStyle(.orange)
+      }
     }
+  }
+
+  private var formattedRecordingDuration: String {
+    let minutes = store.recordingElapsedSeconds / 60
+    let seconds = store.recordingElapsedSeconds % 60
+    return String(format: "%d:%02d", minutes, seconds)
   }
 
   private var isConnected: Bool {
@@ -122,6 +155,19 @@ public struct HeartRateView: View {
         .foregroundStyle(.secondary)
     }
     .accessibilityElement(children: .combine)
+  }
+
+  private func scenePhaseChanged(_ scenePhase: ScenePhase) {
+    switch scenePhase {
+    case .active:
+      store.send(.applicationWillEnterForeground)
+    case .background:
+      store.send(.applicationDidEnterBackground)
+    case .inactive:
+      break
+    @unknown default:
+      break
+    }
   }
 
   private var buttonAction: HeartRateFeature.Action {

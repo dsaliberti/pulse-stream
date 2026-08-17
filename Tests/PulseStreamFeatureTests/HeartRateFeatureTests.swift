@@ -26,6 +26,37 @@ struct HeartRateFeatureTests {
     )
   }
 
+  @Test("Production persistence round-trips a recording snapshot")
+  func productionPersistenceRoundTrip() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let persistence = RecordingPersistenceClient.fileSystem(
+      fileURL: directory.appendingPathComponent("recording.json")
+    )
+    let snapshot = HeartRateRecordingSnapshot(
+      currentSegment: 2,
+      nextSampleID: 8,
+      recording: .finished(
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        endedAt: Date(timeIntervalSince1970: 1_060)
+      ),
+      samples: [
+        HeartRateSample(
+          beatsPerMinute: 72,
+          id: 7,
+          segment: 2,
+          timestamp: Date(timeIntervalSince1970: 1_030)
+        )
+      ]
+    )
+
+    try await persistence.save(snapshot)
+    let restoredSnapshot = try await persistence.load()
+
+    expectNoDifference(restoredSnapshot, snapshot)
+  }
+
   @Test("Streams connection state and measurements")
   @MainActor
   func streamsMeasurements() async {
@@ -79,12 +110,14 @@ struct HeartRateFeatureTests {
   @Test("Records timestamped samples and derives statistics")
   @MainActor
   func recordsSamplesAndStatistics() async {
+    let clock = TestClock()
     let now = Date(timeIntervalSince1970: 1_000)
     var state = HeartRateFeature.State()
     state.connection = .connected(name: "PulseStream Mac")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
+      $0.continuousClock = clock
       $0.date.now = now
     }
 
@@ -117,6 +150,10 @@ struct HeartRateFeatureTests {
       store.state.statistics,
       HeartRateStatistics(average: 80, maximum: 90, minimum: 70)
     )
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(startedAt: now, endedAt: now)
+    }
+    await store.finish()
   }
 
   @Test("Preserves a recording across a connection interruption")
@@ -162,6 +199,9 @@ struct HeartRateFeatureTests {
         HeartRateSample(beatsPerMinute: 75, id: 1, segment: 1, timestamp: now)
       )
     }
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(startedAt: now, endedAt: now)
+    }
     await store.finish()
   }
 
@@ -184,6 +224,115 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(measurement(88))) {
       $0.beatsPerMinute = 88
     }
+  }
+
+  @Test("Updates duration from controlled clock and date dependencies")
+  @MainActor
+  func updatesRecordingDuration() async {
+    let clock = TestClock()
+    let currentDate = LockIsolated(Date(timeIntervalSince1970: 1_000))
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.date = DateGenerator { currentDate.value }
+    }
+
+    await store.send(.startRecordingButtonTapped) {
+      $0.recording = .active(startedAt: Date(timeIntervalSince1970: 1_000))
+    }
+    currentDate.setValue(Date(timeIntervalSince1970: 1_065))
+    await clock.advance(by: .seconds(1))
+    await store.receive(\.recordingTimerTick) {
+      $0.recordingElapsedSeconds = 65
+    }
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        endedAt: Date(timeIntervalSince1970: 1_065)
+      )
+    }
+    await store.finish()
+  }
+
+  @Test("Restores an active recording as a new connection segment")
+  @MainActor
+  func restoresActiveRecording() async {
+    let clock = TestClock()
+    let startedAt = Date(timeIntervalSince1970: 1_000)
+    let restoredAt = Date(timeIntervalSince1970: 1_030)
+    let sample = HeartRateSample(
+      beatsPerMinute: 72,
+      id: 0,
+      segment: 0,
+      timestamp: startedAt
+    )
+    let snapshot = HeartRateRecordingSnapshot(
+      currentSegment: 0,
+      nextSampleID: 1,
+      recording: .active(startedAt: startedAt),
+      samples: [sample]
+    )
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.date.now = restoredAt
+      $0.recordingPersistence.load = { snapshot }
+    }
+
+    await store.send(.task)
+    await store.receive(\.recordingLoaded) {
+      $0.currentSegment = 1
+      $0.isStreamInterrupted = true
+      $0.nextSampleID = 1
+      $0.recording = .active(startedAt: startedAt)
+      $0.recordingElapsedSeconds = 30
+      $0.samples = [sample]
+    }
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(startedAt: startedAt, endedAt: restoredAt)
+    }
+    await store.finish()
+  }
+
+  @Test("Persists lifecycle changes and the latest samples")
+  @MainActor
+  func persistsRecording() async {
+    let clock = TestClock()
+    let now = Date(timeIntervalSince1970: 1_000)
+    let savedSnapshots = LockIsolated<[HeartRateRecordingSnapshot]>([])
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.date.now = now
+      $0.recordingPersistence.save = { snapshot in
+        savedSnapshots.withValue { $0.append(snapshot) }
+      }
+    }
+
+    await store.send(.startRecordingButtonTapped) {
+      $0.recording = .active(startedAt: now)
+    }
+    await store.send(.eventReceived(measurement(72))) {
+      $0.beatsPerMinute = 72
+      $0.nextSampleID = 1
+      $0.samples.append(
+        HeartRateSample(beatsPerMinute: 72, id: 0, segment: 0, timestamp: now)
+      )
+    }
+    await store.send(.applicationDidEnterBackground)
+    await store.send(.stopRecordingButtonTapped) {
+      $0.recording = .finished(startedAt: now, endedAt: now)
+    }
+    await store.finish()
+
+    expectNoDifference(savedSnapshots.value.last, store.state.recordingSnapshot)
   }
 
   @Test("Retries an unexpected disconnection after one second")

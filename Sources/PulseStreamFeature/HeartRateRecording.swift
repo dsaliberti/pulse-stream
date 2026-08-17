@@ -1,6 +1,6 @@
 import Foundation
 
-public struct HeartRateSample: Equatable, Identifiable, Sendable {
+public struct HeartRateSample: Codable, Equatable, Identifiable, Sendable {
   public let beatsPerMinute: UInt16
   public let id: Int
   public let segment: Int
@@ -43,12 +43,31 @@ public struct HeartRateStatistics: Equatable, Sendable {
   }
 }
 
-public enum HeartRateRecording: Equatable, Sendable {
+public enum HeartRateRecording: Codable, Equatable, Sendable {
   case active(startedAt: Date)
   case finished(startedAt: Date, endedAt: Date)
   case idle
 
   public var isActive: Bool {
     if case .active = self { true } else { false }
+  }
+}
+
+public struct HeartRateRecordingSnapshot: Codable, Equatable, Sendable {
+  public let currentSegment: Int
+  public let nextSampleID: Int
+  public let recording: HeartRateRecording
+  public let samples: [HeartRateSample]
+
+  public init(
+    currentSegment: Int,
+    nextSampleID: Int,
+    recording: HeartRateRecording,
+    samples: [HeartRateSample]
+  ) {
+    self.currentSegment = currentSegment
+    self.nextSampleID = nextSampleID
+    self.recording = recording
+    self.samples = samples
   }
 }

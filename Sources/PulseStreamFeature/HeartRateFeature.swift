@@ -28,7 +28,9 @@ public struct HeartRateFeature {
 
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
+    public var persistenceError: String?
     public var recording = HeartRateRecording.idle
+    public var recordingElapsedSeconds = 0
     public var retryAttempt = 0
     public var samples: [HeartRateSample] = []
 
@@ -41,12 +43,26 @@ public struct HeartRateFeature {
       HeartRateStatistics(samples: samples)
     }
 
+    var recordingSnapshot: HeartRateRecordingSnapshot {
+      HeartRateRecordingSnapshot(
+        currentSegment: currentSegment,
+        nextSampleID: nextSampleID,
+        recording: recording,
+        samples: samples
+      )
+    }
+
     public init() {}
   }
 
   public enum Action {
+    case applicationDidEnterBackground
+    case applicationWillEnterForeground
     case disconnectButtonTapped
     case eventReceived(HeartRateClient.Event)
+    case persistenceFailed(message: String)
+    case recordingLoaded(HeartRateRecordingSnapshot)
+    case recordingTimerTick
     case recoveryAttemptTimedOut(attempt: Int)
     case retryDelayElapsed(attempt: Int)
     case scanButtonTapped
@@ -59,18 +75,31 @@ public struct HeartRateFeature {
     case attemptTimeout
     case events
     case retry
+    case restoration
+    case timer
   }
 
   @Dependency(\.continuousClock) var clock
-  @Dependency(\.date.now) var now
+  @Dependency(\.date) var date
   @Dependency(\.heartRateClient) var heartRateClient
+  @Dependency(\.recordingPersistence) var recordingPersistence
 
   public init() {}
 
   public var body: some ReducerOf<Self> {
     Reduce { state, action in
       let heartRateClient = self.heartRateClient
+      let recordingPersistence = self.recordingPersistence
       switch action {
+      case .applicationDidEnterBackground:
+        guard state.recording != .idle else { return .none }
+        updateElapsedTime(state: &state)
+        return persist(state.recordingSnapshot)
+
+      case .applicationWillEnterForeground:
+        updateElapsedTime(state: &state)
+        return .none
+
       case .disconnectButtonTapped:
         state.beatsPerMinute = nil
         state.connection = .disconnected
@@ -131,18 +160,41 @@ public struct HeartRateFeature {
                 beatsPerMinute: measurement.beatsPerMinute,
                 id: state.nextSampleID,
                 segment: state.currentSegment,
-                timestamp: now
+                timestamp: date.now
               )
             )
             state.nextSampleID += 1
             if state.samples.count > 3_600 {
               state.samples.removeFirst(state.samples.count - 3_600)
             }
+            return persist(state.recordingSnapshot)
           }
         case .scanning:
           state.beatsPerMinute = nil
           state.connection = .scanning
         }
+        return .none
+
+      case let .persistenceFailed(message):
+        state.persistenceError = message
+        return .none
+
+      case let .recordingLoaded(snapshot):
+        state.currentSegment = snapshot.currentSegment
+        state.nextSampleID = snapshot.nextSampleID
+        state.recording = snapshot.recording
+        state.samples = Array(snapshot.samples.suffix(3_600))
+        if state.recording.isActive {
+          state.currentSegment += 1
+          state.isStreamInterrupted = true
+          updateElapsedTime(state: &state)
+          return recordingTimer()
+        }
+        updateElapsedTime(state: &state)
+        return .none
+
+      case .recordingTimerTick:
+        updateElapsedTime(state: &state)
         return .none
 
       case let .recoveryAttemptTimedOut(attempt):
@@ -184,23 +236,76 @@ public struct HeartRateFeature {
         state.currentSegment = 0
         state.isStreamInterrupted = false
         state.nextSampleID = 0
-        state.recording = .active(startedAt: now)
+        state.persistenceError = nil
+        state.recording = .active(startedAt: date.now)
+        state.recordingElapsedSeconds = 0
         state.samples.removeAll(keepingCapacity: true)
-        return .none
+        return .merge(
+          persist(state.recordingSnapshot),
+          recordingTimer()
+        )
 
       case .stopRecordingButtonTapped:
         guard case let .active(startedAt) = state.recording else { return .none }
-        state.recording = .finished(startedAt: startedAt, endedAt: now)
-        return .none
+        state.recording = .finished(startedAt: startedAt, endedAt: date.now)
+        updateElapsedTime(state: &state)
+        return .merge(
+          .cancel(id: CancelID.timer),
+          persist(state.recordingSnapshot)
+        )
 
       case .task:
-        return .run { send in
-          for await event in await heartRateClient.events() {
-            await send(.eventReceived(event))
+        return .merge(
+          .run { send in
+            do {
+              if let snapshot = try await recordingPersistence.load() {
+                await send(.recordingLoaded(snapshot))
+              }
+            } catch {
+              await send(.persistenceFailed(message: "The previous recording could not be restored"))
+            }
           }
-        }
-        .cancellable(id: CancelID.events, cancelInFlight: true)
+          .cancellable(id: CancelID.restoration, cancelInFlight: true),
+          .run { send in
+            for await event in await heartRateClient.events() {
+              await send(.eventReceived(event))
+            }
+          }
+          .cancellable(id: CancelID.events, cancelInFlight: true)
+        )
       }
+    }
+  }
+
+  private func persist(_ snapshot: HeartRateRecordingSnapshot) -> Effect<Action> {
+    let recordingPersistence = self.recordingPersistence
+    return .run { send in
+      do {
+        try await recordingPersistence.save(snapshot)
+      } catch {
+        await send(.persistenceFailed(message: "The recording could not be saved"))
+      }
+    }
+  }
+
+  private func recordingTimer() -> Effect<Action> {
+    .run { [clock] send in
+      while !Task.isCancelled {
+        try await clock.sleep(for: .seconds(1))
+        await send(.recordingTimerTick)
+      }
+    }
+    .cancellable(id: CancelID.timer, cancelInFlight: true)
+  }
+
+  private func updateElapsedTime(state: inout State) {
+    switch state.recording {
+    case let .active(startedAt):
+      state.recordingElapsedSeconds = max(0, Int(date.now.timeIntervalSince(startedAt)))
+    case let .finished(startedAt, endedAt):
+      state.recordingElapsedSeconds = max(0, Int(endedAt.timeIntervalSince(startedAt)))
+    case .idle:
+      state.recordingElapsedSeconds = 0
     }
   }
 
