@@ -65,6 +65,7 @@ public struct HeartRateFeature {
     case applicationWillEnterForeground
     case disconnectButtonTapped
     case eventReceived(HeartRateClient.Event)
+    case initialScanTimedOut
     case persistenceFailed(message: String)
     case recordingLoaded(HeartRateRecordingSnapshot)
     case recordingTimerTick
@@ -73,12 +74,14 @@ public struct HeartRateFeature {
     case scanButtonTapped
     case startRecordingButtonTapped
     case stopRecordingButtonTapped
+    case stopScanningButtonTapped
     case task
   }
 
   private enum CancelID {
     case attemptTimeout
     case events
+    case initialScanTimeout
     case retry
     case restoration
     case timer
@@ -114,6 +117,7 @@ public struct HeartRateFeature {
         state.retryAttempt = 0
         return .merge(
           .cancel(id: CancelID.attemptTimeout),
+          .cancel(id: CancelID.initialScanTimeout),
           .cancel(id: CancelID.retry),
           .run { _ in await heartRateClient.disconnect() }
         )
@@ -129,6 +133,7 @@ public struct HeartRateFeature {
           state.retryAttempt = 0
           return .merge(
             .cancel(id: CancelID.attemptTimeout),
+            .cancel(id: CancelID.initialScanTimeout),
             .cancel(id: CancelID.retry)
           )
         case let .connected(name):
@@ -138,10 +143,12 @@ public struct HeartRateFeature {
           state.retryAttempt = 0
           return .merge(
             .cancel(id: CancelID.attemptTimeout),
+            .cancel(id: CancelID.initialScanTimeout),
             .cancel(id: CancelID.retry)
           )
         case let .connecting(name):
           state.connection = .connecting(name: name)
+          return .cancel(id: CancelID.initialScanTimeout)
         case .disconnected:
           state.beatsPerMinute = nil
           state.latestMeasurement = nil
@@ -155,6 +162,7 @@ public struct HeartRateFeature {
           return .merge(.cancel(id: CancelID.attemptTimeout), reconnect)
         case let .discovering(name):
           state.connection = .discovering(name: name)
+          return .cancel(id: CancelID.initialScanTimeout)
         case .failed:
           state.beatsPerMinute = nil
           state.latestMeasurement = nil
@@ -187,8 +195,16 @@ public struct HeartRateFeature {
           state.beatsPerMinute = nil
           state.latestMeasurement = nil
           state.connection = .scanning
+          if state.retryAttempt == 0 {
+            return initialScanTimeout()
+          }
         }
         return .none
+
+      case .initialScanTimedOut:
+        guard case .scanning = state.connection, state.retryAttempt == 0 else { return .none }
+        state.connection = .failed(.discoveryTimedOut)
+        return .run { _ in await heartRateClient.cancelConnectionAttempt() }
 
       case let .persistenceFailed(message):
         state.persistenceError = message
@@ -242,6 +258,7 @@ public struct HeartRateFeature {
         state.retryAttempt = 0
         return .merge(
           .cancel(id: CancelID.attemptTimeout),
+          .cancel(id: CancelID.initialScanTimeout),
           .cancel(id: CancelID.retry),
           .run { _ in await heartRateClient.scan() }
         )
@@ -267,6 +284,14 @@ public struct HeartRateFeature {
         return .merge(
           .cancel(id: CancelID.timer),
           persist(state.recordingSnapshot)
+        )
+
+      case .stopScanningButtonTapped:
+        guard case .scanning = state.connection else { return .none }
+        state.connection = .idle
+        return .merge(
+          .cancel(id: CancelID.initialScanTimeout),
+          .run { _ in await heartRateClient.cancelConnectionAttempt() }
         )
 
       case .task:
@@ -311,6 +336,14 @@ public struct HeartRateFeature {
       }
     }
     .cancellable(id: CancelID.timer, cancelInFlight: true)
+  }
+
+  private func initialScanTimeout() -> Effect<Action> {
+    .run { [clock] send in
+      try await clock.sleep(for: .seconds(10))
+      await send(.initialScanTimedOut)
+    }
+    .cancellable(id: CancelID.initialScanTimeout, cancelInFlight: true)
   }
 
   private func updateElapsedTime(state: inout State) {

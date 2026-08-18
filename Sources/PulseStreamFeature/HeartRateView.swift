@@ -28,31 +28,27 @@ public struct HeartRateView: View {
   public var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(spacing: 28) {
+        LazyVStack(spacing: 28) {
           liveHeartRate
 
           Label(connectionTitle, systemImage: connectionSymbol)
             .foregroundStyle(connectionColor)
             .multilineTextAlignment(.center)
 
+          recordingContent
+
           measurementDetails(
             store.latestMeasurement.map(HeartRateMeasurementDetails.init)
           )
 
           protocolDiagnostics
-
-          recordingContent
-
-          Button(buttonTitle) {
-            store.send(buttonAction)
-          }
-          .buttonStyle(.borderedProminent)
-          .controlSize(.large)
-          .frame(maxWidth: .infinity)
         }
         .padding(24)
       }
       .navigationTitle("PulseStream")
+      .safeAreaInset(edge: .bottom) {
+        actionBar
+      }
       .task {
         await store.send(.task).finish()
       }
@@ -75,14 +71,18 @@ public struct HeartRateView: View {
           Spacer()
           Text(formattedRecordingDuration)
             .font(.body.monospacedDigit())
+            .contentTransition(.numericText())
+            .animation(.snappy, value: store.recordingElapsedSeconds)
           Text("\(store.samples.count) samples")
             .foregroundStyle(.secondary)
+            .contentTransition(.numericText())
+            .animation(.snappy, value: store.samples.count)
         }
         .font(.subheadline)
       }
 
       if !store.samples.isEmpty {
-        Chart(store.samples) { sample in
+        Chart(store.samples.chartSamples(maximumCount: 300)) { sample in
           LineMark(
             x: .value("Time", sample.timestamp),
             y: .value("BPM", sample.beatsPerMinute),
@@ -109,23 +109,46 @@ public struct HeartRateView: View {
         }
       }
 
-      Button(store.recording.isActive ? "Stop Recording" : "Start Recording") {
-        store.send(
-          store.recording.isActive
-            ? .stopRecordingButtonTapped
-            : .startRecordingButtonTapped
-        )
-      }
-      .buttonStyle(.bordered)
-      .controlSize(.large)
-      .disabled(!store.recording.isActive && !isConnected)
-
       if let persistenceError = store.persistenceError {
         Label(persistenceError, systemImage: "exclamationmark.triangle")
           .font(.footnote)
           .foregroundStyle(.orange)
       }
     }
+  }
+
+  private var actionBar: some View {
+    HStack(spacing: 12) {
+      Button {
+        store.send(buttonAction)
+      } label: {
+        Text(buttonTitle)
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent)
+
+      Button {
+        recordingButtonTapped()
+      } label: {
+        Text(store.recording.isActive ? "Stop Recording" : "Record")
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.bordered)
+      .disabled(!store.recording.isActive && !isConnected)
+    }
+    .controlSize(.large)
+    .lineLimit(1)
+    .minimumScaleFactor(0.8)
+    .padding(16)
+    .background(.bar)
+  }
+
+  private func recordingButtonTapped() {
+    store.send(
+      store.recording.isActive
+        ? .stopRecordingButtonTapped
+        : .startRecordingButtonTapped
+    )
   }
 
   private var liveHeartRate: some View {
@@ -143,6 +166,7 @@ public struct HeartRateView: View {
             .accessibilityHidden(true)
           Text(store.beatsPerMinute.map(String.init) ?? "--")
             .contentTransition(.numericText())
+            .animation(.snappy, value: store.beatsPerMinute)
         }
           .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
         Text("BPM")
@@ -165,8 +189,18 @@ public struct HeartRateView: View {
       Text("Protocol diagnostics")
         .font(.headline)
 
-      LabeledContent("Accepted packets", value: store.receivedMeasurementCount.formatted())
-      LabeledContent("Rejected packets", value: store.rejectedMeasurementCount.formatted())
+      LabeledContent("Accepted packets") {
+        Text(store.receivedMeasurementCount.formatted())
+          .monospacedDigit()
+          .contentTransition(.numericText())
+          .animation(.snappy, value: store.receivedMeasurementCount)
+      }
+      LabeledContent("Rejected packets") {
+        Text(store.rejectedMeasurementCount.formatted())
+          .monospacedDigit()
+          .contentTransition(.numericText())
+          .animation(.snappy, value: store.rejectedMeasurementCount)
+      }
 
       if let error = store.latestMeasurementError {
         Label(error.message, systemImage: "exclamationmark.triangle.fill")
@@ -206,11 +240,15 @@ public struct HeartRateView: View {
           } ?? "Not reported"
         )
         .monospacedDigit()
+        .contentTransition(.numericText())
+        .animation(.snappy, value: displayedDetails.latestRRIntervalMilliseconds)
       }
 
       LabeledContent("RR intervals in packet") {
         Text(displayedDetails.rrIntervalsMilliseconds.count.formatted())
           .monospacedDigit()
+          .contentTransition(.numericText())
+          .animation(.snappy, value: displayedDetails.rrIntervalsMilliseconds.count)
       }
 
       LabeledContent("Energy expended") {
@@ -219,6 +257,8 @@ public struct HeartRateView: View {
             ?? "Not reported"
         )
         .monospacedDigit()
+        .contentTransition(.numericText())
+        .animation(.snappy, value: displayedDetails.energyExpendedKilojoules)
       }
     }
     .padding(16)
@@ -260,6 +300,8 @@ public struct HeartRateView: View {
     VStack(spacing: 2) {
       Text(value)
         .font(.title3.monospacedDigit().bold())
+        .contentTransition(.numericText())
+        .animation(.snappy, value: value)
       Text(title)
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -284,7 +326,9 @@ public struct HeartRateView: View {
     switch store.connection {
     case .connected, .connecting, .discovering, .reconnecting:
       .disconnectButtonTapped
-    case .bluetoothUnavailable, .disconnected, .failed, .idle, .scanning:
+    case .scanning:
+      .stopScanningButtonTapped
+    case .bluetoothUnavailable, .disconnected, .failed, .idle:
       .scanButtonTapped
     }
   }
@@ -293,7 +337,7 @@ public struct HeartRateView: View {
     switch store.connection {
     case .connected, .connecting, .discovering: "Disconnect"
     case .reconnecting: "Cancel Retry"
-    case .scanning: "Scan Again"
+    case .scanning: "Stop Scanning"
     case .bluetoothUnavailable, .disconnected, .failed, .idle: "Scan for Mac"
     }
   }

@@ -5,6 +5,43 @@ import Foundation
 import Testing
 @testable import PulseStreamFeature
 
+@Suite("Heart rate chart samples")
+struct HeartRateChartSamplesTests {
+  @Test
+  func boundsLargeRecordingsAndPreservesConnectionBoundaries() {
+    let samples = (0..<1_000).map { index in
+      HeartRateSample(
+        beatsPerMinute: 72,
+        id: index,
+        segment: index < 500 ? 0 : 1,
+        timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+      )
+    }
+
+    let chartSamples = samples.chartSamples(maximumCount: 100)
+
+    #expect(chartSamples.count <= 103)
+    #expect(chartSamples.first?.id == 0)
+    #expect(chartSamples.last?.id == 999)
+    #expect(chartSamples.contains { $0.id == 499 })
+    #expect(chartSamples.contains { $0.id == 500 })
+  }
+
+  @Test
+  func preservesSmallRecordings() {
+    let samples = (0..<3).map { index in
+      HeartRateSample(
+        beatsPerMinute: 72,
+        id: index,
+        segment: 0,
+        timestamp: Date(timeIntervalSince1970: TimeInterval(index))
+      )
+    }
+
+    #expect(samples.chartSamples(maximumCount: 300) == samples)
+  }
+}
+
 @Suite("Heart rate feature")
 struct HeartRateFeatureTests {
   private actor CallCounter {
@@ -108,10 +145,12 @@ struct HeartRateFeatureTests {
   @Test("Streams connection state and measurements")
   @MainActor
   func streamsMeasurements() async {
+    let clock = TestClock()
     let (stream, continuation) = AsyncStream<HeartRateClient.Event>.makeStream()
     let store = TestStore(initialState: HeartRateFeature.State()) {
       HeartRateFeature()
     } withDependencies: {
+      $0.continuousClock = clock
       $0.heartRateClient.events = { stream }
     }
 
@@ -573,5 +612,77 @@ struct HeartRateFeatureTests {
 
     let callCount = await calls.value
     #expect(callCount == 1)
+  }
+
+  @Test("Initial discovery times out after ten seconds")
+  @MainActor
+  func initialDiscoveryTimesOut() async {
+    let cancelCalls = CallCounter()
+    let clock = TestClock()
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.heartRateClient.cancelConnectionAttempt = {
+        await cancelCalls.increment()
+      }
+    }
+
+    await store.send(.eventReceived(.scanning)) {
+      $0.connection = .scanning
+    }
+    await clock.advance(by: .seconds(10))
+    await store.receive(\.initialScanTimedOut) {
+      $0.connection = .failed(.discoveryTimedOut)
+    }
+    await store.finish()
+
+    #expect(await cancelCalls.value == 1)
+  }
+
+  @Test("Stop scanning cancels discovery")
+  @MainActor
+  func stopScanningCancelsDiscovery() async {
+    let cancelCalls = CallCounter()
+    let clock = TestClock()
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+      $0.heartRateClient.cancelConnectionAttempt = {
+        await cancelCalls.increment()
+      }
+    }
+
+    await store.send(.eventReceived(.scanning)) {
+      $0.connection = .scanning
+    }
+    await store.send(.stopScanningButtonTapped) {
+      $0.connection = .idle
+    }
+    await clock.advance(by: .seconds(10))
+    await store.finish()
+
+    #expect(await cancelCalls.value == 1)
+  }
+
+  @Test("Successful discovery cancels the initial timeout")
+  @MainActor
+  func successfulDiscoveryCancelsInitialTimeout() async {
+    let clock = TestClock()
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.continuousClock = clock
+    }
+
+    await store.send(.eventReceived(.scanning)) {
+      $0.connection = .scanning
+    }
+    await store.send(.eventReceived(.connecting(name: "PulseStream Mac"))) {
+      $0.connection = .connecting(name: "PulseStream Mac")
+    }
+    await clock.advance(by: .seconds(10))
+    await store.finish()
   }
 }

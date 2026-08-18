@@ -7,6 +7,7 @@ public struct HeartRateClient: Sendable {
   public enum Failure: Equatable, Sendable {
     case characteristicDiscoveryFailed(description: String?)
     case connectionFailed(description: String?)
+    case discoveryTimedOut
     case invalidMeasurement
     case measurementUnavailable(description: String?)
     case reconnectionExhausted
@@ -20,6 +21,8 @@ public struct HeartRateClient: Sendable {
         description ?? "Heart Rate Measurement characteristic not found"
       case let .connectionFailed(description):
         description ?? "Connection failed"
+      case .discoveryTimedOut:
+        "PulseStream Mac wasn’t found"
       case .invalidMeasurement:
         "Heart rate measurement could not be decoded"
       case let .measurementUnavailable(description):

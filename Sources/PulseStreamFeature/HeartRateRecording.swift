@@ -71,3 +71,34 @@ public struct HeartRateRecordingSnapshot: Codable, Equatable, Sendable {
     self.samples = samples
   }
 }
+
+extension Array where Element == HeartRateSample {
+  func chartSamples(maximumCount: Int) -> [HeartRateSample] {
+    guard maximumCount > 0, count > maximumCount else { return self }
+
+    let interval = Swift.max(1, Int(ceil(Double(count) / Double(maximumCount))))
+    var result: [HeartRateSample] = []
+    result.reserveCapacity(maximumCount)
+
+    for index in indices where index.isMultiple(of: interval) {
+      result.append(self[index])
+    }
+
+    for index in indices.dropFirst() where self[index - 1].segment != self[index].segment {
+      result.append(self[index - 1])
+      result.append(self[index])
+    }
+
+    if let last, result.last?.id != last.id {
+      result.append(last)
+    }
+
+    return result
+      .sorted { $0.id < $1.id }
+      .reduce(into: []) { samples, sample in
+        if samples.last?.id != sample.id {
+          samples.append(sample)
+        }
+      }
+  }
+}
