@@ -89,6 +89,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
     didSet { updateAutomaticMeasurements() }
   }
 
+  private static let automaticBeatsPerMinuteRange = 62...94
   private static let heartRateServiceID = CBUUID(string: HeartRateProfile.serviceUUID)
   private static let measurementCharacteristicID = CBUUID(
     string: HeartRateProfile.measurementCharacteristicUUID
@@ -227,10 +228,12 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
       while !Task.isCancelled {
         try? await Task.sleep(for: .seconds(1))
         guard !Task.isCancelled, let self else { return }
-        beatsPerMinute += variationStep
-        if beatsPerMinute >= 94 || beatsPerMinute <= 62 {
-          variationStep *= -1
+        if beatsPerMinute >= Self.automaticBeatsPerMinuteRange.upperBound {
+          variationStep = -1
+        } else if beatsPerMinute <= Self.automaticBeatsPerMinuteRange.lowerBound {
+          variationStep = 1
         }
+        beatsPerMinute += variationStep
         sendCurrentMeasurement()
       }
     }
