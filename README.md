@@ -5,9 +5,7 @@ SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
 macOS peripheral publishes live heart-rate notifications, while a native iOS
 central discovers, connects, records, restores, and diagnoses the stream.
 
-
 https://github.com/user-attachments/assets/fabc99c2-6415-4cbc-8823-be7cc6ce59a4
-
 
 The project follows the
 [Bluetooth SIG Heart Rate Service 1.0 specification](https://www.bluetooth.com/specifications/specs/heart-rate-service-1-0/)
@@ -32,14 +30,13 @@ rather than a custom protocol.
 - Timestamped, bounded sample history rendered with Swift Charts
 - Minimum, average, and maximum BPM statistics
 - Recording duration driven by controllable clock and date dependencies
-- Separate BLE and recording lifecycles
-- Pause and resume without interrupting the live heart-rate stream
+- Independent BLE and recording lifecycles: pausing capture does not interrupt
+  the live heart-rate stream
 - Visible chart segmentation across connection interruptions
 - Active and paused session persistence using Point-Free Sharing file storage
-- Foreground/background synchronization and immediate launch restoration
+- Foreground/background persistence with immediate restoration; active sessions
+  reconnect automatically while paused sessions remain idle
 - Confirmed destructive clearing of recorded samples and chart data
-- Restored active sessions resume discovery; fresh launches and paused
-  sessions remain idle until scanning is requested
 
 ### Protocol lab
 
@@ -47,8 +44,8 @@ rather than a custom protocol.
 - Sensor-contact support and good/poor contact states
 - Optional accumulated energy expenditure
 - Zero-to-multiple RR intervals—the elapsed time between consecutive ECG R
-  waves—per notification
-- Millisecond conversion for beat-to-beat RR timing
+  waves—per notification, converted from standard 1/1024-second units to
+  milliseconds
 - Deliberate malformed-packet injection from macOS
 - Typed, non-fatal decoder failures on iOS
 - Accepted/rejected packet counters with actionable diagnostics
@@ -111,21 +108,6 @@ CoreBluetooth peripherals cannot directly disconnect a central. The Mac app's
 **Drop Session** button removes and republishes its Generic Attribute Profile
 (GATT) service—the standard BLE structure containing services and
 characteristics—to exercise the client's real invalidation and recovery path.
-
-## Protocol testing
-
-While connected, the Mac app can vary:
-
-- automatic or manual BPM;
-- 8-bit or 16-bit encoding;
-- sensor contact;
-- RR interval count;
-- energy expenditure;
-- malformed packet category.
-
-The iOS measurement and diagnostics cards update without requiring a new
-connection. Malformed packets increment the rejected count, display their typed
-reason, and allow the next valid notification through normally.
 
 ## Build from Terminal
 
