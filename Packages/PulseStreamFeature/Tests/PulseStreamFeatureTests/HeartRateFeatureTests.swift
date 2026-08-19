@@ -5,6 +5,46 @@ import Foundation
 import Testing
 @testable import PulseStreamFeature
 
+fileprivate enum LegacyHeartRateRecording: Codable {
+  case active(startedAt: Date)
+  case finished(startedAt: Date, endedAt: Date)
+  case idle
+}
+
+@Suite("Heart rate recording coding")
+struct HeartRateRecordingCodingTests {
+  @Test("Migrates a legacy active recording without losing elapsed time")
+  func migratesLegacyActiveRecording() throws {
+    let startedAt = Date(timeIntervalSince1970: 1_000)
+    let data = try JSONEncoder().encode(
+      LegacyHeartRateRecording.active(startedAt: startedAt)
+    )
+
+    expectNoDifference(
+      try JSONDecoder().decode(HeartRateRecording.self, from: data),
+      .active(
+        startedAt: startedAt,
+        resumedAt: startedAt,
+        accumulatedDuration: 0
+      )
+    )
+  }
+
+  @Test("Migrates a legacy finished recording to paused")
+  func migratesLegacyFinishedRecording() throws {
+    let startedAt = Date(timeIntervalSince1970: 1_000)
+    let endedAt = Date(timeIntervalSince1970: 1_065)
+    let data = try JSONEncoder().encode(
+      LegacyHeartRateRecording.finished(startedAt: startedAt, endedAt: endedAt)
+    )
+
+    expectNoDifference(
+      try JSONDecoder().decode(HeartRateRecording.self, from: data),
+      .paused(startedAt: startedAt, accumulatedDuration: 65)
+    )
+  }
+}
+
 @Suite("Heart rate chart samples")
 struct HeartRateChartSamplesTests {
   @Test
@@ -122,9 +162,9 @@ struct HeartRateFeatureTests {
     let snapshot = HeartRateRecordingSnapshot(
       currentSegment: 2,
       nextSampleID: 8,
-      recording: .finished(
+      recording: .paused(
         startedAt: Date(timeIntervalSince1970: 1_000),
-        endedAt: Date(timeIntervalSince1970: 1_060)
+        accumulatedDuration: 60
       ),
       samples: [
         HeartRateSample(
@@ -210,7 +250,11 @@ struct HeartRateFeatureTests {
     }
 
     await store.send(.startRecordingButtonTapped) {
-      $0.recording = .active(startedAt: now)
+      $0.recording = .active(
+        startedAt: now,
+        resumedAt: now,
+        accumulatedDuration: 0
+      )
     }
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
@@ -244,8 +288,8 @@ struct HeartRateFeatureTests {
       store.state.statistics,
       HeartRateStatistics(average: 80, maximum: 90, minimum: 70)
     )
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(startedAt: now, endedAt: now)
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(startedAt: now, accumulatedDuration: 0)
     }
     await store.finish()
   }
@@ -265,7 +309,11 @@ struct HeartRateFeatureTests {
     }
 
     await store.send(.startRecordingButtonTapped) {
-      $0.recording = .active(startedAt: now)
+      $0.recording = .active(
+        startedAt: now,
+        resumedAt: now,
+        accumulatedDuration: 0
+      )
     }
     await store.send(.eventReceived(measurement(70))) {
       $0.beatsPerMinute = 70
@@ -298,27 +346,31 @@ struct HeartRateFeatureTests {
         HeartRateSample(beatsPerMinute: 75, id: 1, segment: 1, timestamp: now)
       )
     }
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(startedAt: now, endedAt: now)
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(startedAt: now, accumulatedDuration: 0)
     }
     await store.finish()
   }
 
-  @Test("Stops recording without stopping the live measurement")
+  @Test("Pauses sample capture without stopping the live measurement")
   @MainActor
-  func stopsRecording() async {
+  func pausesRecording() async {
     let now = Date(timeIntervalSince1970: 1_000)
     var state = HeartRateFeature.State()
     state.connection = .connected(name: "PulseStream Mac")
-    state.recording = .active(startedAt: now)
+    state.recording = .active(
+      startedAt: now,
+      resumedAt: now,
+      accumulatedDuration: 0
+    )
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
       $0.date.now = now
     }
 
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(startedAt: now, endedAt: now)
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(startedAt: now, accumulatedDuration: 0)
     }
     await store.send(.eventReceived(measurement(88))) {
       $0.beatsPerMinute = 88
@@ -342,17 +394,44 @@ struct HeartRateFeatureTests {
     }
 
     await store.send(.startRecordingButtonTapped) {
-      $0.recording = .active(startedAt: Date(timeIntervalSince1970: 1_000))
+      $0.recording = .active(
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        resumedAt: Date(timeIntervalSince1970: 1_000),
+        accumulatedDuration: 0
+      )
     }
     currentDate.setValue(Date(timeIntervalSince1970: 1_065))
     await clock.advance(by: .seconds(1))
     await store.receive(\.recordingTimerTick) {
       $0.recordingElapsedSeconds = 65
     }
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(
         startedAt: Date(timeIntervalSince1970: 1_000),
-        endedAt: Date(timeIntervalSince1970: 1_065)
+        accumulatedDuration: 65
+      )
+    }
+    currentDate.setValue(Date(timeIntervalSince1970: 1_100))
+    await clock.advance(by: .seconds(10))
+    expectNoDifference(store.state.recordingElapsedSeconds, 65)
+
+    await store.send(.resumeRecordingButtonTapped) {
+      $0.currentSegment = 1
+      $0.recording = .active(
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        resumedAt: Date(timeIntervalSince1970: 1_100),
+        accumulatedDuration: 65
+      )
+    }
+    currentDate.setValue(Date(timeIntervalSince1970: 1_110))
+    await clock.advance(by: .seconds(1))
+    await store.receive(\.recordingTimerTick) {
+      $0.recordingElapsedSeconds = 75
+    }
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(
+        startedAt: Date(timeIntervalSince1970: 1_000),
+        accumulatedDuration: 75
       )
     }
     await store.finish()
@@ -374,7 +453,11 @@ struct HeartRateFeatureTests {
     let snapshot = HeartRateRecordingSnapshot(
       currentSegment: 0,
       nextSampleID: 1,
-      recording: .active(startedAt: startedAt),
+      recording: .active(
+        startedAt: startedAt,
+        resumedAt: startedAt,
+        accumulatedDuration: 0
+      ),
       samples: [sample]
     )
     let store = TestStore(initialState: HeartRateFeature.State()) {
@@ -393,12 +476,16 @@ struct HeartRateFeatureTests {
       $0.currentSegment = 1
       $0.isStreamInterrupted = true
       $0.nextSampleID = 1
-      $0.recording = .active(startedAt: startedAt)
+      $0.recording = .active(
+        startedAt: startedAt,
+        resumedAt: startedAt,
+        accumulatedDuration: 0
+      )
       $0.recordingElapsedSeconds = 30
       $0.samples = [sample]
     }
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(startedAt: startedAt, endedAt: restoredAt)
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(startedAt: startedAt, accumulatedDuration: 30)
     }
     await store.finish()
 
@@ -406,29 +493,29 @@ struct HeartRateFeatureTests {
     #expect(scanCallCount == 1)
   }
 
-  @Test("Restoring a completed recording does not reconnect")
+  @Test("Restoring a paused recording does not reconnect")
   @MainActor
-  func restoresCompletedRecordingWithoutScanning() async {
+  func restoresPausedRecordingWithoutScanning() async {
     let scanCalls = CallCounter()
     let startedAt = Date(timeIntervalSince1970: 1_000)
-    let endedAt = Date(timeIntervalSince1970: 1_060)
+    let restoredAt = Date(timeIntervalSince1970: 1_060)
     let snapshot = HeartRateRecordingSnapshot(
       currentSegment: 0,
       nextSampleID: 0,
-      recording: .finished(startedAt: startedAt, endedAt: endedAt),
+      recording: .paused(startedAt: startedAt, accumulatedDuration: 60),
       samples: []
     )
     let store = TestStore(initialState: HeartRateFeature.State()) {
       HeartRateFeature()
     } withDependencies: {
-      $0.date.now = endedAt
+      $0.date.now = restoredAt
       $0.heartRateClient.scan = {
         await scanCalls.increment()
       }
     }
 
     await store.send(.recordingLoaded(snapshot)) {
-      $0.recording = .finished(startedAt: startedAt, endedAt: endedAt)
+      $0.recording = .paused(startedAt: startedAt, accumulatedDuration: 60)
       $0.recordingElapsedSeconds = 60
     }
 
@@ -455,7 +542,11 @@ struct HeartRateFeatureTests {
     }
 
     await store.send(.startRecordingButtonTapped) {
-      $0.recording = .active(startedAt: now)
+      $0.recording = .active(
+        startedAt: now,
+        resumedAt: now,
+        accumulatedDuration: 0
+      )
     }
     await store.send(.eventReceived(measurement(72))) {
       $0.beatsPerMinute = 72
@@ -467,8 +558,61 @@ struct HeartRateFeatureTests {
       )
     }
     await store.send(.applicationDidEnterBackground)
-    await store.send(.stopRecordingButtonTapped) {
-      $0.recording = .finished(startedAt: now, endedAt: now)
+    await store.send(.pauseRecordingButtonTapped) {
+      $0.recording = .paused(startedAt: now, accumulatedDuration: 0)
+    }
+    await store.finish()
+
+    expectNoDifference(savedSnapshots.value.last, store.state.recordingSnapshot)
+  }
+
+  @Test("Clear requires confirmation and removes the persisted recording")
+  @MainActor
+  func clearsRecordingAfterConfirmation() async {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let savedSnapshots = LockIsolated<[HeartRateRecordingSnapshot]>([])
+    var state = HeartRateFeature.State()
+    state.connection = .connected(name: "PulseStream Mac")
+    state.currentSegment = 2
+    state.isStreamInterrupted = true
+    state.nextSampleID = 8
+    state.persistenceError = "Previous persistence warning"
+    state.recording = .paused(startedAt: now, accumulatedDuration: 60)
+    state.recordingElapsedSeconds = 60
+    state.samples = [
+      HeartRateSample(beatsPerMinute: 72, id: 7, segment: 2, timestamp: now)
+    ]
+    let store = TestStore(initialState: state) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.recordingPersistence.save = { snapshot in
+        savedSnapshots.withValue { $0.append(snapshot) }
+      }
+    }
+
+    await store.send(.clearRecordingButtonTapped) {
+      $0.confirmationDialog = ConfirmationDialogState {
+        TextState("Clear recording?")
+      } actions: {
+        ButtonState(role: .cancel) {
+          TextState("Cancel")
+        }
+        ButtonState(role: .destructive, action: .confirmClearRecordingButtonTapped) {
+          TextState("Clear Recording")
+        }
+      } message: {
+        TextState("This permanently removes the recorded samples and chart.")
+      }
+    }
+    await store.send(\.confirmationDialog.confirmClearRecordingButtonTapped) {
+      $0.confirmationDialog = nil
+      $0.currentSegment = 0
+      $0.isStreamInterrupted = false
+      $0.nextSampleID = 0
+      $0.persistenceError = nil
+      $0.recording = .idle
+      $0.recordingElapsedSeconds = 0
+      $0.samples.removeAll()
     }
     await store.finish()
 

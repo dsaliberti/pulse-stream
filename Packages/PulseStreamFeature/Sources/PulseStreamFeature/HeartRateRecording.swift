@@ -44,12 +44,113 @@ public struct HeartRateStatistics: Equatable, Sendable {
 }
 
 public enum HeartRateRecording: Codable, Equatable, Sendable {
-  case active(startedAt: Date)
-  case finished(startedAt: Date, endedAt: Date)
+  case active(
+    startedAt: Date,
+    resumedAt: Date,
+    accumulatedDuration: TimeInterval
+  )
   case idle
+  case paused(startedAt: Date, accumulatedDuration: TimeInterval)
 
   public var isActive: Bool {
     if case .active = self { true } else { false }
+  }
+
+  public var isPaused: Bool {
+    if case .paused = self { true } else { false }
+  }
+
+  private enum CodingKeys: String, CaseIterable, CodingKey {
+    case active
+    case finished
+    case idle
+    case paused
+  }
+
+  private struct ActivePayload: Codable {
+    let accumulatedDuration: TimeInterval?
+    let resumedAt: Date?
+    let startedAt: Date
+  }
+
+  private struct EmptyPayload: Codable {}
+
+  private struct FinishedPayload: Codable {
+    let endedAt: Date
+    let startedAt: Date
+  }
+
+  private struct PausedPayload: Codable {
+    let accumulatedDuration: TimeInterval
+    let startedAt: Date
+  }
+
+  public init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let encodedCases = CodingKeys.allCases.filter(container.contains)
+    guard encodedCases.count == 1, let encodedCase = encodedCases.first else {
+      throw DecodingError.dataCorrupted(
+        DecodingError.Context(
+          codingPath: decoder.codingPath,
+          debugDescription: "Expected exactly one heart-rate recording state"
+        )
+      )
+    }
+
+    switch encodedCase {
+    case .active:
+      let payload = try container.decode(ActivePayload.self, forKey: .active)
+      self = .active(
+        startedAt: payload.startedAt,
+        resumedAt: payload.resumedAt ?? payload.startedAt,
+        accumulatedDuration: max(0, payload.accumulatedDuration ?? 0)
+      )
+
+    case .finished:
+      let payload = try container.decode(FinishedPayload.self, forKey: .finished)
+      self = .paused(
+        startedAt: payload.startedAt,
+        accumulatedDuration: max(0, payload.endedAt.timeIntervalSince(payload.startedAt))
+      )
+
+    case .idle:
+      _ = try container.decode(EmptyPayload.self, forKey: .idle)
+      self = .idle
+
+    case .paused:
+      let payload = try container.decode(PausedPayload.self, forKey: .paused)
+      self = .paused(
+        startedAt: payload.startedAt,
+        accumulatedDuration: max(0, payload.accumulatedDuration)
+      )
+    }
+  }
+
+  public func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    switch self {
+    case let .active(startedAt, resumedAt, accumulatedDuration):
+      try container.encode(
+        ActivePayload(
+          accumulatedDuration: accumulatedDuration,
+          resumedAt: resumedAt,
+          startedAt: startedAt
+        ),
+        forKey: .active
+      )
+
+    case .idle:
+      try container.encode(EmptyPayload(), forKey: .idle)
+
+    case let .paused(startedAt, accumulatedDuration):
+      try container.encode(
+        PausedPayload(
+          accumulatedDuration: accumulatedDuration,
+          startedAt: startedAt
+        ),
+        forKey: .paused
+      )
+    }
   }
 }
 

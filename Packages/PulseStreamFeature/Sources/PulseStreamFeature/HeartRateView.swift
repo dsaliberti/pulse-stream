@@ -19,7 +19,7 @@ public struct HeartRateView: View {
   @Environment(\.scenePhase) private var scenePhase
   @ScaledMetric(relativeTo: .largeTitle) private var beatsPerMinuteFontSize = 88
 
-  public let store: StoreOf<HeartRateFeature>
+  @Bindable public var store: StoreOf<HeartRateFeature>
 
   public init(store: StoreOf<HeartRateFeature>) {
     self.store = store
@@ -42,7 +42,7 @@ public struct HeartRateView: View {
           )
 
           protocolDiagnostics
-        }
+//        }
         .padding(24)
       }
       .navigationTitle("PulseStream")
@@ -56,6 +56,7 @@ public struct HeartRateView: View {
         scenePhaseChanged(scenePhase)
       }
     }
+    .confirmationDialog($store.scope(\.confirmationDialog, action: \.confirmationDialog))
   }
 
   private var recordingContent: some View {
@@ -63,10 +64,10 @@ public struct HeartRateView: View {
       if store.recording != .idle {
         HStack {
           Label(
-            store.recording.isActive ? "Recording" : "Recorded",
-            systemImage: store.recording.isActive ? "record.circle.fill" : "checkmark.circle"
+            store.recording.isActive ? "Recording" : "Paused",
+            systemImage: store.recording.isActive ? "record.circle.fill" : "pause.circle.fill"
           )
-          .foregroundStyle(store.recording.isActive ? .red : .secondary)
+          .foregroundStyle(store.recording.isActive ? .red : .orange)
           Spacer()
           Text(formattedRecordingDuration)
             .font(.body.monospacedDigit())
@@ -76,6 +77,14 @@ public struct HeartRateView: View {
             .foregroundStyle(.secondary)
             .contentTransition(.numericText())
             .animation(.snappy, value: store.samples.count)
+          Button(role: .destructive) {
+            store.send(.clearRecordingButtonTapped)
+          } label: {
+            Label("Clear recording", systemImage: "trash")
+              .labelStyle(.iconOnly)
+          }
+          .buttonStyle(.plain)
+          .foregroundStyle(.red)
         }
         .font(.subheadline)
       }
@@ -127,27 +136,19 @@ public struct HeartRateView: View {
       .buttonStyle(.borderedProminent)
 
       Button {
-        recordingButtonTapped()
+        store.send(recordingButtonAction)
       } label: {
-        Text(store.recording.isActive ? "Stop Recording" : "Record")
+        Text(recordingButtonTitle)
           .frame(maxWidth: .infinity)
       }
       .buttonStyle(.bordered)
-      .disabled(!store.recording.isActive && !isConnected)
+      .disabled(recordingButtonIsDisabled)
     }
     .controlSize(.large)
     .lineLimit(1)
     .minimumScaleFactor(0.8)
     .padding(16)
     .background(.bar)
-  }
-
-  private func recordingButtonTapped() {
-    store.send(
-      store.recording.isActive
-        ? .stopRecordingButtonTapped
-        : .startRecordingButtonTapped
-    )
   }
 
   private var liveHeartRate: some View {
@@ -293,6 +294,29 @@ public struct HeartRateView: View {
 
   private var isConnected: Bool {
     if case .connected = store.connection { true } else { false }
+  }
+
+  private var recordingButtonAction: HeartRateFeature.Action {
+    switch store.recording {
+    case .active:
+      .pauseRecordingButtonTapped
+    case .idle:
+      .startRecordingButtonTapped
+    case .paused:
+      .resumeRecordingButtonTapped
+    }
+  }
+
+  private var recordingButtonIsDisabled: Bool {
+    !store.recording.isActive && !isConnected
+  }
+
+  private var recordingButtonTitle: String {
+    switch store.recording {
+    case .active: "Pause Recording"
+    case .idle: "Start Recording"
+    case .paused: "Resume Recording"
+    }
   }
 
   private func statistic(title: String, value: String) -> some View {

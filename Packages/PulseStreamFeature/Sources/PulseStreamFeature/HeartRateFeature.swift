@@ -29,6 +29,7 @@ public struct HeartRateFeature {
 
     public var beatsPerMinute: UInt16?
     public var connection = Connection.idle
+    @Presents var confirmationDialog: ConfirmationDialogState<Action.ConfirmationDialog>?
     public var latestMeasurement: HeartRateMeasurement?
     public var latestMeasurementError: HeartRateMeasurementDecodingError?
     public var persistenceError: String?
@@ -63,19 +64,27 @@ public struct HeartRateFeature {
   public enum Action {
     case applicationDidEnterBackground
     case applicationWillEnterForeground
+    case clearRecordingButtonTapped
+    case confirmationDialog(PresentationAction<ConfirmationDialog>)
     case disconnectButtonTapped
     case eventReceived(HeartRateClient.Event)
     case initialScanTimedOut
     case persistenceFailed(message: String)
+    case pauseRecordingButtonTapped
     case recordingLoaded(HeartRateRecordingSnapshot)
     case recordingTimerTick
     case recoveryAttemptTimedOut(attempt: Int)
     case retryDelayElapsed(attempt: Int)
+    case resumeRecordingButtonTapped
     case scanButtonTapped
     case startRecordingButtonTapped
-    case stopRecordingButtonTapped
     case stopScanningButtonTapped
     case task
+
+    @CasePathable
+    public enum ConfirmationDialog {
+      case confirmClearRecordingButtonTapped
+    }
   }
 
   private enum CancelID {
@@ -105,6 +114,38 @@ public struct HeartRateFeature {
 
       case .applicationWillEnterForeground:
         updateElapsedTime(state: &state)
+        return .none
+
+      case .clearRecordingButtonTapped:
+        guard state.recording != .idle else { return .none }
+        state.confirmationDialog = ConfirmationDialogState {
+          TextState("Clear recording?")
+        } actions: {
+          ButtonState(role: .cancel) {
+            TextState("Cancel")
+          }
+          ButtonState(role: .destructive, action: .confirmClearRecordingButtonTapped) {
+            TextState("Clear Recording")
+          }
+        } message: {
+          TextState("This permanently removes the recorded samples and chart.")
+        }
+        return .none
+
+      case .confirmationDialog(.presented(.confirmClearRecordingButtonTapped)):
+        state.currentSegment = 0
+        state.isStreamInterrupted = false
+        state.nextSampleID = 0
+        state.persistenceError = nil
+        state.recording = .idle
+        state.recordingElapsedSeconds = 0
+        state.samples.removeAll(keepingCapacity: true)
+        return .merge(
+          .cancel(id: CancelID.timer),
+          persist(state.recordingSnapshot)
+        )
+
+      case .confirmationDialog:
         return .none
 
       case .disconnectButtonTapped:
@@ -209,6 +250,21 @@ public struct HeartRateFeature {
         state.persistenceError = message
         return .none
 
+      case .pauseRecordingButtonTapped:
+        guard case let .active(startedAt, resumedAt, accumulatedDuration) = state.recording
+        else { return .none }
+        let totalDuration = accumulatedDuration
+          + max(0, date.now.timeIntervalSince(resumedAt))
+        state.recording = .paused(
+          startedAt: startedAt,
+          accumulatedDuration: totalDuration
+        )
+        updateElapsedTime(state: &state)
+        return .merge(
+          .cancel(id: CancelID.timer),
+          persist(state.recordingSnapshot)
+        )
+
       case let .recordingLoaded(snapshot):
         state.currentSegment = snapshot.currentSegment
         state.nextSampleID = snapshot.nextSampleID
@@ -255,6 +311,24 @@ public struct HeartRateFeature {
           .cancellable(id: CancelID.attemptTimeout, cancelInFlight: true)
         )
 
+      case .resumeRecordingButtonTapped:
+        guard
+          case .connected = state.connection,
+          case let .paused(startedAt, accumulatedDuration) = state.recording
+        else { return .none }
+        state.currentSegment += 1
+        state.isStreamInterrupted = false
+        state.recording = .active(
+          startedAt: startedAt,
+          resumedAt: date.now,
+          accumulatedDuration: accumulatedDuration
+        )
+        updateElapsedTime(state: &state)
+        return .merge(
+          persist(state.recordingSnapshot),
+          recordingTimer()
+        )
+
       case .scanButtonTapped:
         state.isManualDisconnectPending = false
         state.retryAttempt = 0
@@ -267,25 +341,21 @@ public struct HeartRateFeature {
 
       case .startRecordingButtonTapped:
         guard case .connected = state.connection else { return .none }
+        let startedAt = date.now
         state.currentSegment = 0
         state.isStreamInterrupted = false
         state.nextSampleID = 0
         state.persistenceError = nil
-        state.recording = .active(startedAt: date.now)
+        state.recording = .active(
+          startedAt: startedAt,
+          resumedAt: startedAt,
+          accumulatedDuration: 0
+        )
         state.recordingElapsedSeconds = 0
         state.samples.removeAll(keepingCapacity: true)
         return .merge(
           persist(state.recordingSnapshot),
           recordingTimer()
-        )
-
-      case .stopRecordingButtonTapped:
-        guard case let .active(startedAt) = state.recording else { return .none }
-        state.recording = .finished(startedAt: startedAt, endedAt: date.now)
-        updateElapsedTime(state: &state)
-        return .merge(
-          .cancel(id: CancelID.timer),
-          persist(state.recordingSnapshot)
         )
 
       case .stopScanningButtonTapped:
@@ -313,6 +383,7 @@ public struct HeartRateFeature {
         .cancellable(id: CancelID.events, cancelInFlight: true)
       }
     }
+    .ifLet(\.$confirmationDialog, action: \.confirmationDialog)
   }
 
   private func persist(_ snapshot: HeartRateRecordingSnapshot) -> Effect<Action> {
@@ -346,12 +417,15 @@ public struct HeartRateFeature {
 
   private func updateElapsedTime(state: inout State) {
     switch state.recording {
-    case let .active(startedAt):
-      state.recordingElapsedSeconds = max(0, Int(date.now.timeIntervalSince(startedAt)))
-    case let .finished(startedAt, endedAt):
-      state.recordingElapsedSeconds = max(0, Int(endedAt.timeIntervalSince(startedAt)))
+    case let .active(_, resumedAt, accumulatedDuration):
+      state.recordingElapsedSeconds = max(
+        0,
+        Int(accumulatedDuration + max(0, date.now.timeIntervalSince(resumedAt)))
+      )
     case .idle:
       state.recordingElapsedSeconds = 0
+    case let .paused(_, accumulatedDuration):
+      state.recordingElapsedSeconds = max(0, Int(accumulatedDuration))
     }
   }
 

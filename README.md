@@ -33,10 +33,12 @@ rather than a custom protocol.
 - Minimum, average, and maximum BPM statistics
 - Recording duration driven by controllable clock and date dependencies
 - Separate BLE and recording lifecycles
+- Pause and resume without interrupting the live heart-rate stream
 - Visible chart segmentation across connection interruptions
-- Active and completed session persistence using Point-Free Sharing file storage
+- Active and paused session persistence using Point-Free Sharing file storage
 - Foreground/background synchronization and immediate launch restoration
-- Restored active sessions resume discovery; fresh launches and completed
+- Confirmed destructive clearing of recorded samples and chart data
+- Restored active sessions resume discovery; fresh launches and paused
   sessions remain idle until scanning is requested
 
 ### Protocol lab
