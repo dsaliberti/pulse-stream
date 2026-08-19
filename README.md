@@ -134,7 +134,8 @@ xcodebuild -workspace PulseStream.xcworkspace \
 ## Tests
 
 ```sh
-swift test
+swift test --package-path Packages/BluetoothHealth
+swift test --package-path Packages/PulseStreamFeature
 ```
 
 The suite covers packet encoding/decoding, optional fields, malformed data,
@@ -148,15 +149,11 @@ PulseStream
 ├── Apps
 │   ├── HeartRateBroadcaster    # native macOS CoreBluetooth peripheral
 │   └── PulseStream             # native iOS application entry point
-├── Sources
-│   ├── BluetoothHealth         # shared Heart Rate Service codec
-│   └── PulseStreamFeature      # TCA domain, BLE dependency, persistence, UI
-├── Tests
-│   ├── BluetoothHealthTests
-│   └── PulseStreamFeatureTests
+├── Packages
+│   ├── BluetoothHealth         # shared Heart Rate Service codec package
+│   └── PulseStreamFeature      # iOS TCA feature package
 ├── PulseStream.xcodeproj
-├── PulseStream.xcworkspace
-└── Package.swift
+└── PulseStream.xcworkspace
 ```
 
 ## License
