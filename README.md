@@ -5,14 +5,7 @@ SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
 macOS peripheral publishes live heart-rate notifications, while a native iOS
 central discovers, connects, records, restores, and diagnoses the stream.
 
-
-
 https://github.com/user-attachments/assets/9599d1ae-b6f8-4ec1-af11-42edc32c2021
-
-
-
-
-
 
 The project follows the
 [Bluetooth SIG Heart Rate Service 1.0 specification](https://www.bluetooth.com/specifications/specs/heart-rate-service-1-0/)
@@ -64,7 +57,7 @@ connection to restart.
 ## Architecture
 
 ```text
-HeartRateBroadcaster (macOS peripheral)
+PulseStreamBroadcaster (macOS peripheral)
         │  CoreBluetooth notifications: 180D / 2A37
         ▼
 LiveHeartRateCentral (iOS dependency)
@@ -98,13 +91,18 @@ The iOS Simulator cannot perform this Mac-peripheral-to-iPhone-central test.
 ## Run on devices
 
 1. Open `PulseStream.xcworkspace` in Xcode.
-2. Select the `HeartRateBroadcaster` scheme and run it on **My Mac**.
+2. Select the `PulseStreamBroadcaster` scheme and run it on **My Mac**.
 3. Press **Start Broadcasting** in the Mac app.
 4. Select the `PulseStream` scheme and a physical iPhone.
 5. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig`, then set its
    `DEVELOPMENT_TEAM` value to your Apple Developer team identifier. The local
    file is gitignored, so personal signing does not dirty the shared project.
-6. Run the iOS app, approve Bluetooth access, and press **Scan for Mac**.
+6. Run the iOS app, approve Bluetooth access, and press **Scan for Broadcaster**.
+
+On the first build, allow Xcode to finish resolving the Swift packages. Xcode
+may then ask you to approve the
+[Swift macros](https://developer.apple.com/documentation/swift/applying-macros)
+supplied by the Point-Free dependencies; approve them, then build again.
 
 The iOS target declares the `bluetooth-central` background mode. A valid local
 code-signing configuration is therefore required when installing it on a device.
@@ -122,7 +120,7 @@ Commands use the currently selected stable Xcode command-line tools:
 
 ```sh
 xcodebuild -workspace PulseStream.xcworkspace \
-  -scheme HeartRateBroadcaster \
+  -scheme PulseStreamBroadcaster \
   -destination 'platform=macOS' build
 
 xcodebuild -workspace PulseStream.xcworkspace \
@@ -147,7 +145,7 @@ restoration, protocol presentation, and non-fatal packet rejection.
 ```text
 PulseStream
 ├── Apps
-│   ├── HeartRateBroadcaster    # native macOS CoreBluetooth peripheral
+│   ├── PulseStreamBroadcaster  # native macOS CoreBluetooth peripheral
 │   └── PulseStream             # native iOS application entry point
 ├── Config                       # shared build settings and signing template
 ├── Packages
