@@ -5,7 +5,14 @@ SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
 macOS peripheral publishes live heart-rate notifications, while a native iOS
 central discovers, connects, records, restores, and diagnoses the stream.
 
-https://github.com/user-attachments/assets/fabc99c2-6415-4cbc-8823-be7cc6ce59a4
+
+
+https://github.com/user-attachments/assets/9599d1ae-b6f8-4ec1-af11-42edc32c2021
+
+
+
+
+
 
 The project follows the
 [Bluetooth SIG Heart Rate Service 1.0 specification](https://www.bluetooth.com/specifications/specs/heart-rate-service-1-0/)
