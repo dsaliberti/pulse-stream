@@ -114,6 +114,7 @@ private final class LiveHeartRateCentral: NSObject {
   private var deviceName = "PulseStream Mac"
   private var eventStreamID = 0
   private var peripheral: CBPeripheral?
+  private var scanRequested = false
   private var suppressNextDisconnectEvent = false
 
   private override init() {
@@ -127,6 +128,7 @@ private final class LiveHeartRateCentral: NSObject {
 
   func disconnect() {
     centralManager.stopScan()
+    scanRequested = false
     suppressNextDisconnectEvent = false
     guard let peripheral else {
       continuation?.yield(.disconnected)
@@ -137,6 +139,7 @@ private final class LiveHeartRateCentral: NSObject {
 
   func cancelConnectionAttempt() {
     centralManager.stopScan()
+    scanRequested = false
     guard let peripheral else { return }
     suppressNextDisconnectEvent = true
     centralManager.cancelPeripheralConnection(peripheral)
@@ -154,23 +157,27 @@ private final class LiveHeartRateCentral: NSObject {
           self?.stopEvents(ifCurrent: eventStreamID)
         }
       }
-      scan()
     }
   }
 
   func scan() {
+    scanRequested = true
+
     switch centralManager.state {
     case .poweredOn:
-      break
-    case .unknown:
+      startRequestedScan()
+    case .unknown, .resetting:
       return
-    case .resetting, .unsupported, .unauthorized, .poweredOff:
+    case .unsupported, .unauthorized, .poweredOff:
       continuation?.yield(.bluetoothUnavailable)
-      return
     @unknown default:
       continuation?.yield(.bluetoothUnavailable)
-      return
     }
+  }
+
+  private func startRequestedScan() {
+    guard scanRequested, centralManager.state == .poweredOn else { return }
+    scanRequested = false
 
     suppressNextDisconnectEvent = false
     if let peripheral {
@@ -196,6 +203,7 @@ private final class LiveHeartRateCentral: NSObject {
   private func stopEvents(ifCurrent eventStreamID: Int) {
     guard self.eventStreamID == eventStreamID else { return }
     centralManager.stopScan()
+    scanRequested = false
     continuation = nil
     if let peripheral {
       centralManager.cancelPeripheralConnection(peripheral)
@@ -208,9 +216,14 @@ extension LiveHeartRateCentral: CBCentralManagerDelegate {
   nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
     Task { @MainActor [weak self] in
       guard let self else { return }
-      if central.state == .poweredOn {
-        scan()
-      } else {
+      switch central.state {
+      case .poweredOn:
+        startRequestedScan()
+      case .unknown, .resetting:
+        break
+      case .unsupported, .unauthorized, .poweredOff:
+        continuation?.yield(.bluetoothUnavailable)
+      @unknown default:
         continuation?.yield(.bluetoothUnavailable)
       }
     }

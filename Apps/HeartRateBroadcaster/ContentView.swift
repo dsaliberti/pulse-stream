@@ -93,6 +93,7 @@ struct ContentView: View {
         broadcaster.toggleBroadcasting()
       }
       .buttonStyle(.borderedProminent)
+      .disabled(broadcaster.status == .starting || broadcaster.status == .resetting)
 
       Button("Drop Session") {
         broadcaster.dropSession()
@@ -107,9 +108,11 @@ struct ContentView: View {
     switch broadcaster.status {
     case .bluetoothUnavailable: "antenna.radiowaves.left.and.right.slash"
     case .ready: "checkmark.circle"
+    case .starting: "hourglass"
     case .advertising: "antenna.radiowaves.left.and.right"
     case .subscribed: "iphone.radiowaves.left.and.right"
     case .resetting: "arrow.clockwise"
+    case .failed: "exclamationmark.triangle"
     }
   }
 
@@ -117,9 +120,11 @@ struct ContentView: View {
     switch broadcaster.status {
     case .bluetoothUnavailable: .red
     case .ready: .secondary
+    case .starting: .orange
     case .advertising: .orange
     case .subscribed: .green
     case .resetting: .orange
+    case .failed: .red
     }
   }
 }

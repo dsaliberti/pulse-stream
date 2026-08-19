@@ -21,10 +21,6 @@ let package = Package(
       from: "1.26.1"
     ),
     .package(
-      url: "https://github.com/pointfreeco/swift-custom-dump",
-      from: "1.7.0"
-    ),
-    .package(
       url: "https://github.com/pointfreeco/swift-dependencies",
       from: "1.15.0"
     ),
@@ -54,10 +50,7 @@ let package = Package(
     ),
     .testTarget(
       name: "PulseStreamFeatureTests",
-      dependencies: [
-        "PulseStreamFeature",
-        .product(name: "CustomDump", package: "swift-custom-dump"),
-      ]
+      dependencies: ["PulseStreamFeature"]
     ),
   ]
 )

@@ -24,6 +24,8 @@
 		A20000000000000000000006 /* PulseStreamApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseStreamApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* PulseStream.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PulseStream.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000009 /* PulseStream.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = PulseStream.xcconfig; sourceTree = "<group>"; };
+		A2000000000000000000000A /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = Local.xcconfig.example; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,6 +52,7 @@
 			isa = PBXGroup;
 			children = (
 				A40000000000000000000002 /* Apps */,
+				A40000000000000000000006 /* Config */,
 				A40000000000000000000004 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +93,15 @@
 				A20000000000000000000008 /* Info.plist */,
 			);
 			path = PulseStream;
+			sourceTree = "<group>";
+		};
+		A40000000000000000000006 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000009 /* PulseStream.xcconfig */,
+				A2000000000000000000000A /* Local.xcconfig.example */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -293,6 +305,7 @@
 		};
 		B10000000000000000000005 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000009 /* PulseStream.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -314,6 +327,7 @@
 		};
 		B10000000000000000000006 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A20000000000000000000009 /* PulseStream.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

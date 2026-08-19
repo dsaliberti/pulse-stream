@@ -76,4 +76,18 @@ struct HeartRateMeasurementTests {
       try HeartRateMeasurement(decoding: Data([0b0001_0000, 72, 0x00]))
     }
   }
+
+  @Test("Rejects an RR flag without an interval")
+  func missingRRInterval() {
+    #expect(throws: HeartRateMeasurementDecodingError.invalidRRIntervals) {
+      try HeartRateMeasurement(decoding: Data([0b0001_0000, 72]))
+    }
+  }
+
+  @Test("Rejects bytes not declared by the flags")
+  func unexpectedTrailingByte() {
+    #expect(throws: HeartRateMeasurementDecodingError.unexpectedTrailingBytes) {
+      try HeartRateMeasurement(decoding: Data([0b0000_0000, 72, 0xFF]))
+    }
+  }
 }

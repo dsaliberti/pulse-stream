@@ -83,7 +83,6 @@ public struct HeartRateFeature {
     case events
     case initialScanTimeout
     case retry
-    case restoration
     case timer
   }
 
@@ -219,7 +218,10 @@ public struct HeartRateFeature {
           state.currentSegment += 1
           state.isStreamInterrupted = true
           updateElapsedTime(state: &state)
-          return recordingTimer()
+          return .merge(
+            recordingTimer(),
+            .run { _ in await heartRateClient.scan() }
+          )
         }
         updateElapsedTime(state: &state)
         return .none
@@ -295,24 +297,20 @@ public struct HeartRateFeature {
         )
 
       case .task:
-        return .merge(
-          .run { send in
-            do {
-              if let snapshot = try await recordingPersistence.load() {
-                await send(.recordingLoaded(snapshot))
-              }
-            } catch {
-              await send(.persistenceFailed(message: "The previous recording could not be restored"))
+        return .run { send in
+          let events = await heartRateClient.events()
+          do {
+            if let snapshot = try await recordingPersistence.load() {
+              await send(.recordingLoaded(snapshot))
             }
+          } catch {
+            await send(.persistenceFailed(message: "The previous recording could not be restored"))
           }
-          .cancellable(id: CancelID.restoration, cancelInFlight: true),
-          .run { send in
-            for await event in await heartRateClient.events() {
-              await send(.eventReceived(event))
-            }
+          for await event in events {
+            await send(.eventReceived(event))
           }
-          .cancellable(id: CancelID.events, cancelInFlight: true)
-        )
+        }
+        .cancellable(id: CancelID.events, cancelInFlight: true)
       }
     }
   }

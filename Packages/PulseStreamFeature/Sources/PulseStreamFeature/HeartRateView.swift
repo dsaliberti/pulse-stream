@@ -4,7 +4,7 @@ import Foundation
 import SwiftUI
 
 public struct PulseStreamRootView: View {
-  private let store = Store(initialState: HeartRateFeature.State()) {
+  @State private var store = Store(initialState: HeartRateFeature.State()) {
     HeartRateFeature()
   }
 
@@ -58,7 +58,6 @@ public struct HeartRateView: View {
     }
   }
 
-  @ViewBuilder
   private var recordingContent: some View {
     VStack(spacing: 16) {
       if store.recording != .idle {
@@ -168,7 +167,7 @@ public struct HeartRateView: View {
             .contentTransition(.numericText())
             .animation(.snappy, value: store.beatsPerMinute)
         }
-          .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
+        .font(.system(size: beatsPerMinuteFontSize, weight: .bold, design: .rounded))
         Text("BPM")
           .font(.headline)
           .foregroundStyle(.secondary)

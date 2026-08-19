@@ -32,6 +32,8 @@ rather than a custom protocol.
 - Visible chart segmentation across connection interruptions
 - Active and completed session persistence using Point-Free Sharing file storage
 - Foreground/background synchronization and immediate launch restoration
+- Restored active sessions resume discovery; fresh launches and completed
+  sessions remain idle until scanning is requested
 
 ### Protocol lab
 
@@ -89,9 +91,9 @@ The iOS Simulator cannot perform this Mac-peripheral-to-iPhone-central test.
 2. Select the `HeartRateBroadcaster` scheme and run it on **My Mac**.
 3. Press **Start Broadcasting** in the Mac app.
 4. Select the `PulseStream` scheme and a physical iPhone.
-5. In the iOS target's **Signing & Capabilities** settings, select your Apple
-   Developer team. PulseStream intentionally does not commit a personal
-   `DEVELOPMENT_TEAM` identifier.
+5. Copy `Config/Local.xcconfig.example` to `Config/Local.xcconfig`, then set its
+   `DEVELOPMENT_TEAM` value to your Apple Developer team identifier. The local
+   file is gitignored, so personal signing does not dirty the shared project.
 6. Run the iOS app, approve Bluetooth access, and press **Scan for Mac**.
 
 The iOS target declares the `bluetooth-central` background mode. A valid local
@@ -152,6 +154,7 @@ PulseStream
 ├── Apps
 │   ├── HeartRateBroadcaster    # native macOS CoreBluetooth peripheral
 │   └── PulseStream             # native iOS application entry point
+├── Config                       # shared build settings and signing template
 ├── Packages
 │   ├── BluetoothHealth         # shared Heart Rate Service codec package
 │   └── PulseStreamFeature      # iOS TCA feature package

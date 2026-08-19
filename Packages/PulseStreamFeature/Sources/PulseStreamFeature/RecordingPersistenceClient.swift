@@ -17,7 +17,7 @@ public struct RecordingPersistenceClient: Sendable {
 
 extension RecordingPersistenceClient: DependencyKey {
   public static var liveValue: Self {
-    .fileSystem()
+    .sharingFileStorage()
   }
 
   public static var testValue: Self {
@@ -26,7 +26,7 @@ extension RecordingPersistenceClient: DependencyKey {
 }
 
 extension RecordingPersistenceClient {
-  static func fileSystem(
+  static func sharingFileStorage(
     fileURL: URL? = nil
   ) -> Self {
     let fileURL = fileURL ?? URL.applicationSupportDirectory

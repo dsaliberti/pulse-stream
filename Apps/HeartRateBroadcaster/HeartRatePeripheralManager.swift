@@ -55,17 +55,21 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   enum Status: Equatable {
     case bluetoothUnavailable
     case ready
+    case starting
     case advertising
     case subscribed
     case resetting
+    case failed(message: String)
 
     var title: String {
       switch self {
       case .bluetoothUnavailable: "Bluetooth unavailable"
       case .ready: "Ready"
+      case .starting: "Starting broadcaster"
       case .advertising: "Waiting for an iPhone"
       case .subscribed: "iPhone subscribed"
       case .resetting: "Dropping session"
+      case let .failed(message): message
       }
     }
   }
@@ -95,6 +99,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   private var subscribedCentralIDs: Set<UUID> = []
   private var measurementTask: Task<Void, Never>?
   private var pendingMeasurement: Data?
+  private var sessionResetTask: Task<Void, Never>?
   private var variationStep = 1
 
   override init() {
@@ -108,6 +113,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
 
   deinit {
     measurementTask?.cancel()
+    sessionResetTask?.cancel()
   }
 
   func toggleBroadcasting() {
@@ -115,6 +121,8 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   }
 
   func startBroadcasting() {
+    sessionResetTask?.cancel()
+    sessionResetTask = nil
     guard peripheralManager.state == .poweredOn else {
       status = .bluetoothUnavailable
       return
@@ -123,6 +131,14 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
   }
 
   func stopBroadcasting() {
+    sessionResetTask?.cancel()
+    sessionResetTask = nil
+    tearDownBroadcasting(
+      status: peripheralManager.state == .poweredOn ? .ready : .bluetoothUnavailable
+    )
+  }
+
+  private func tearDownBroadcasting(status: Status) {
     measurementTask?.cancel()
     measurementTask = nil
     peripheralManager.stopAdvertising()
@@ -132,7 +148,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
     subscriberCount = 0
     isAdvertising = false
     pendingMeasurement = nil
-    status = peripheralManager.state == .poweredOn ? .ready : .bluetoothUnavailable
+    self.status = status
   }
 
   func sendCurrentMeasurement() {
@@ -156,12 +172,18 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
 
   func dropSession() {
     guard isAdvertising else { return }
-    status = .resetting
-    stopBroadcasting()
+    sessionResetTask?.cancel()
+    tearDownBroadcasting(status: .resetting)
 
-    Task { @MainActor [weak self] in
-      try? await Task.sleep(for: .seconds(1))
-      self?.startBroadcasting()
+    sessionResetTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: .seconds(1))
+      } catch {
+        return
+      }
+      guard let self, peripheralManager.state == .poweredOn else { return }
+      sessionResetTask = nil
+      publishServiceAndAdvertise()
     }
   }
 
@@ -178,6 +200,7 @@ final class HeartRatePeripheralManager: NSObject, ObservableObject {
     let service = CBMutableService(type: Self.heartRateServiceID, primary: true)
     service.characteristics = [characteristic]
     measurementCharacteristic = characteristic
+    status = .starting
     peripheralManager.add(service)
   }
 
@@ -219,10 +242,13 @@ extension HeartRatePeripheralManager: CBPeripheralManagerDelegate {
     Task { @MainActor [weak self] in
       guard let self else { return }
       if peripheral.state == .poweredOn {
-        status = .ready
+        if status == .bluetoothUnavailable {
+          status = .ready
+        }
       } else {
-        stopBroadcasting()
-        status = .bluetoothUnavailable
+        sessionResetTask?.cancel()
+        sessionResetTask = nil
+        tearDownBroadcasting(status: .bluetoothUnavailable)
       }
     }
   }
@@ -234,16 +260,38 @@ extension HeartRatePeripheralManager: CBPeripheralManagerDelegate {
   ) {
     Task { @MainActor [weak self] in
       guard let self else { return }
-      guard error == nil else {
-        stopBroadcasting()
+      guard service.uuid == Self.heartRateServiceID, status == .starting else { return }
+      guard let error else {
+        peripheralManager.startAdvertising([
+          CBAdvertisementDataServiceUUIDsKey: [Self.heartRateServiceID],
+          CBAdvertisementDataLocalNameKey: "PulseStream Mac",
+        ])
         return
       }
-      peripheralManager.startAdvertising([
-        CBAdvertisementDataServiceUUIDsKey: [Self.heartRateServiceID],
-        CBAdvertisementDataLocalNameKey: "PulseStream Mac",
-      ])
-      isAdvertising = true
-      status = .advertising
+      tearDownBroadcasting(
+        status: .failed(message: "Could not publish service: \(error.localizedDescription)")
+      )
+    }
+  }
+
+  nonisolated func peripheralManagerDidStartAdvertising(
+    _ peripheral: CBPeripheralManager,
+    error: (any Error)?
+  ) {
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      guard status == .starting else {
+        peripheral.stopAdvertising()
+        return
+      }
+      guard let error else {
+        isAdvertising = true
+        status = .advertising
+        return
+      }
+      tearDownBroadcasting(
+        status: .failed(message: "Could not advertise: \(error.localizedDescription)")
+      )
     }
   }
 
@@ -271,7 +319,11 @@ extension HeartRatePeripheralManager: CBPeripheralManagerDelegate {
       guard let self else { return }
       subscribedCentralIDs.remove(central.identifier)
       subscriberCount = subscribedCentralIDs.count
-      status = subscriberCount == 0 ? .advertising : .subscribed
+      if subscriberCount > 0 {
+        status = .subscribed
+      } else {
+        status = isAdvertising ? .advertising : .ready
+      }
       updateAutomaticMeasurements()
     }
   }

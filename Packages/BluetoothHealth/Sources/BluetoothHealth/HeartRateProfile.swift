@@ -89,7 +89,8 @@ public struct HeartRateMeasurement: Equatable, Sendable {
     energyExpended = flags & 0b0000_1000 == 0 ? nil : try readUInt16()
 
     if flags & 0b0001_0000 != 0 {
-      guard (bytes.count - index).isMultiple(of: 2) else {
+      let remainingByteCount = bytes.count - index
+      guard remainingByteCount >= 2, remainingByteCount.isMultiple(of: 2) else {
         throw HeartRateMeasurementDecodingError.invalidRRIntervals
       }
       var intervals: [UInt16] = []
@@ -112,7 +113,7 @@ public enum HeartRateMeasurementDecodingError: Error, Equatable, Sendable {
   public var message: String {
     switch self {
     case .truncated: "Packet ended before all declared fields were present"
-    case .invalidRRIntervals: "RR interval data did not contain complete 16-bit values"
+    case .invalidRRIntervals: "RR interval data must contain one or more complete 16-bit values"
     case .unexpectedTrailingBytes: "Packet contained bytes not declared by its flags"
     }
   }

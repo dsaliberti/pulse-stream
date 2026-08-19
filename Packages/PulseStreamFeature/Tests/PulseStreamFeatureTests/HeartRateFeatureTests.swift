@@ -111,12 +111,12 @@ struct HeartRateFeatureTests {
     expectNoDifference(store.state.connection, .connected(name: "PulseStream Mac"))
   }
 
-  @Test("Production persistence round-trips a recording snapshot")
-  func productionPersistenceRoundTrip() async throws {
+  @Test("Sharing file storage round-trips a recording snapshot")
+  func sharingFileStorageRoundTrip() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     defer { try? FileManager.default.removeItem(at: directory) }
-    let persistence = RecordingPersistenceClient.fileSystem(
+    let persistence = RecordingPersistenceClient.sharingFileStorage(
       fileURL: directory.appendingPathComponent("recording.json")
     )
     let snapshot = HeartRateRecordingSnapshot(
@@ -362,6 +362,7 @@ struct HeartRateFeatureTests {
   @MainActor
   func restoresActiveRecording() async {
     let clock = TestClock()
+    let scanCalls = CallCounter()
     let startedAt = Date(timeIntervalSince1970: 1_000)
     let restoredAt = Date(timeIntervalSince1970: 1_030)
     let sample = HeartRateSample(
@@ -381,6 +382,9 @@ struct HeartRateFeatureTests {
     } withDependencies: {
       $0.continuousClock = clock
       $0.date.now = restoredAt
+      $0.heartRateClient.scan = {
+        await scanCalls.increment()
+      }
       $0.recordingPersistence.load = { snapshot }
     }
 
@@ -397,6 +401,39 @@ struct HeartRateFeatureTests {
       $0.recording = .finished(startedAt: startedAt, endedAt: restoredAt)
     }
     await store.finish()
+
+    let scanCallCount = await scanCalls.value
+    #expect(scanCallCount == 1)
+  }
+
+  @Test("Restoring a completed recording does not reconnect")
+  @MainActor
+  func restoresCompletedRecordingWithoutScanning() async {
+    let scanCalls = CallCounter()
+    let startedAt = Date(timeIntervalSince1970: 1_000)
+    let endedAt = Date(timeIntervalSince1970: 1_060)
+    let snapshot = HeartRateRecordingSnapshot(
+      currentSegment: 0,
+      nextSampleID: 0,
+      recording: .finished(startedAt: startedAt, endedAt: endedAt),
+      samples: []
+    )
+    let store = TestStore(initialState: HeartRateFeature.State()) {
+      HeartRateFeature()
+    } withDependencies: {
+      $0.date.now = endedAt
+      $0.heartRateClient.scan = {
+        await scanCalls.increment()
+      }
+    }
+
+    await store.send(.recordingLoaded(snapshot)) {
+      $0.recording = .finished(startedAt: startedAt, endedAt: endedAt)
+      $0.recordingElapsedSeconds = 60
+    }
+
+    let scanCallCount = await scanCalls.value
+    #expect(scanCallCount == 0)
   }
 
   @Test("Persists lifecycle changes and the latest samples")

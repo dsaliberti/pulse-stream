@@ -1,0 +1,2 @@
+// Personal device-signing settings belong in the ignored local configuration.
+#include? "Local.xcconfig"
