@@ -162,9 +162,6 @@
 			);
 			mainGroup = A40000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				A80000000000000000000001 /* XCLocalSwiftPackageReference "." */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A40000000000000000000004 /* Products */;
 			projectDirPath = "";
@@ -368,22 +365,13 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		A80000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = .;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		A90000000000000000000001 /* BluetoothHealth */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A80000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = BluetoothHealth;
 		};
 		A90000000000000000000002 /* PulseStreamFeature */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A80000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = PulseStreamFeature;
 		};
 /* End XCSwiftPackageProductDependency section */

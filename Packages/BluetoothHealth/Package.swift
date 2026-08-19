@@ -1,0 +1,24 @@
+// swift-tools-version: 6.2
+
+import PackageDescription
+
+let package = Package(
+  name: "BluetoothHealth",
+  platforms: [
+    .iOS(.v26),
+    .macOS(.v14),
+  ],
+  products: [
+    .library(
+      name: "BluetoothHealth",
+      targets: ["BluetoothHealth"]
+    ),
+  ],
+  targets: [
+    .target(name: "BluetoothHealth"),
+    .testTarget(
+      name: "BluetoothHealthTests",
+      dependencies: ["BluetoothHealth"]
+    ),
+  ]
+)

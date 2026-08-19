@@ -3,22 +3,19 @@
 import PackageDescription
 
 let package = Package(
-  name: "PulseStream",
+  name: "PulseStreamFeature",
   platforms: [
     .iOS(.v26),
     .macOS(.v14),
   ],
   products: [
     .library(
-      name: "BluetoothHealth",
-      targets: ["BluetoothHealth"]
-    ),
-    .library(
       name: "PulseStreamFeature",
       targets: ["PulseStreamFeature"]
     ),
   ],
   dependencies: [
+    .package(path: "../BluetoothHealth"),
     .package(
       url: "https://github.com/pointfreeco/swift-composable-architecture",
       from: "1.26.1"
@@ -37,7 +34,6 @@ let package = Package(
     ),
   ],
   targets: [
-    .target(name: "BluetoothHealth"),
     .target(
       name: "PulseStreamFeature",
       dependencies: [
@@ -55,10 +51,6 @@ let package = Package(
           package: "swift-sharing"
         ),
       ]
-    ),
-    .testTarget(
-      name: "BluetoothHealthTests",
-      dependencies: ["BluetoothHealth"]
     ),
     .testTarget(
       name: "PulseStreamFeatureTests",

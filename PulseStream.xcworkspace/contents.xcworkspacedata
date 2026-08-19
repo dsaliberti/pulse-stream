@@ -2,4 +2,8 @@
 <Workspace version = "1.0">
   <FileRef location = "group:PulseStream.xcodeproj">
   </FileRef>
+  <FileRef location = "group:Packages/BluetoothHealth">
+  </FileRef>
+  <FileRef location = "group:Packages/PulseStreamFeature">
+  </FileRef>
 </Workspace>
