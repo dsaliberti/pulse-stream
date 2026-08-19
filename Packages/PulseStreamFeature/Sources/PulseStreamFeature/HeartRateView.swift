@@ -42,7 +42,7 @@ public struct HeartRateView: View {
           )
 
           protocolDiagnostics
-//        }
+        }
         .padding(24)
       }
       .navigationTitle("PulseStream")
