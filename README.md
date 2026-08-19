@@ -5,9 +5,11 @@ SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
 macOS peripheral publishes live heart-rate notifications, while a native iOS
 central discovers, connects, records, restores, and diagnoses the stream.
 
-The project uses the Bluetooth SIG Heart Rate Service (`180D`) and Heart Rate
-Measurement characteristic (`2A37`), so its packet format and optional fields
-match real heart-rate sensors rather than a custom protocol.
+The project follows the
+[Bluetooth SIG Heart Rate Service 1.0 specification](https://www.bluetooth.com/specifications/specs/heart-rate-service-1-0/)
+using the Heart Rate Service (`180D`) and Heart Rate Measurement characteristic
+(`2A37`), so its packet format and optional fields match real heart-rate sensors
+rather than a custom protocol.
 
 ## Highlights
 
@@ -36,7 +38,8 @@ match real heart-rate sensors rather than a custom protocol.
 - Standard 8-bit and 16-bit BPM representations
 - Sensor-contact support and good/poor contact states
 - Optional accumulated energy expenditure
-- Zero-to-multiple RR intervals per notification
+- Zero-to-multiple RR intervals—the elapsed time between consecutive ECG R
+  waves—per notification
 - Millisecond conversion for beat-to-beat RR timing
 - Deliberate malformed-packet injection from macOS
 - Typed, non-fatal decoder failures on iOS
