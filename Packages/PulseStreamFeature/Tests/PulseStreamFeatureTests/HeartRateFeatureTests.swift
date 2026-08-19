@@ -131,7 +131,7 @@ struct HeartRateFeatureTests {
   func rejectsMalformedMeasurementNonFatally() async {
     var state = HeartRateFeature.State()
     state.beatsPerMinute = 72
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     state.latestMeasurement = measurementValue(72)
     state.receivedMeasurementCount = 1
     let store = TestStore(initialState: state) {
@@ -148,7 +148,7 @@ struct HeartRateFeatureTests {
       $0.receivedMeasurementCount = 2
     }
 
-    expectNoDifference(store.state.connection, .connected(name: "PulseStream Mac"))
+    expectNoDifference(store.state.connection, .connected(name: "PulseStream Broadcaster"))
   }
 
   @Test("Sharing file storage round-trips a recording snapshot")
@@ -201,14 +201,14 @@ struct HeartRateFeatureTests {
       $0.connection = .scanning
     }
 
-    continuation.yield(.connecting(name: "PulseStream Mac"))
+    continuation.yield(.connecting(name: "PulseStream Broadcaster"))
     await store.receive(\.eventReceived) {
-      $0.connection = .connecting(name: "PulseStream Mac")
+      $0.connection = .connecting(name: "PulseStream Broadcaster")
     }
 
-    continuation.yield(.connected(name: "PulseStream Mac"))
+    continuation.yield(.connected(name: "PulseStream Broadcaster"))
     await store.receive(\.eventReceived) {
-      $0.connection = .connected(name: "PulseStream Mac")
+      $0.connection = .connected(name: "PulseStream Broadcaster")
     }
 
     let latestMeasurement = HeartRateMeasurement(
@@ -229,7 +229,7 @@ struct HeartRateFeatureTests {
 
     var expectedState = HeartRateFeature.State()
     expectedState.beatsPerMinute = 72
-    expectedState.connection = .connected(name: "PulseStream Mac")
+    expectedState.connection = .connected(name: "PulseStream Broadcaster")
     expectedState.latestMeasurement = latestMeasurement
     expectedState.receivedMeasurementCount = 1
     expectNoDifference(store.state, expectedState)
@@ -241,7 +241,7 @@ struct HeartRateFeatureTests {
     let clock = TestClock()
     let now = Date(timeIntervalSince1970: 1_000)
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -300,7 +300,7 @@ struct HeartRateFeatureTests {
     let clock = TestClock()
     let now = Date(timeIntervalSince1970: 1_000)
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -332,8 +332,8 @@ struct HeartRateFeatureTests {
       $0.isStreamInterrupted = true
       $0.retryAttempt = 1
     }
-    await store.send(.eventReceived(.connected(name: "PulseStream Mac"))) {
-      $0.connection = .connected(name: "PulseStream Mac")
+    await store.send(.eventReceived(.connected(name: "PulseStream Broadcaster"))) {
+      $0.connection = .connected(name: "PulseStream Broadcaster")
       $0.isStreamInterrupted = false
       $0.retryAttempt = 0
     }
@@ -357,7 +357,7 @@ struct HeartRateFeatureTests {
   func pausesRecording() async {
     let now = Date(timeIntervalSince1970: 1_000)
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     state.recording = .active(
       startedAt: now,
       resumedAt: now,
@@ -385,7 +385,7 @@ struct HeartRateFeatureTests {
     let clock = TestClock()
     let currentDate = LockIsolated(Date(timeIntervalSince1970: 1_000))
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -530,7 +530,7 @@ struct HeartRateFeatureTests {
     let now = Date(timeIntervalSince1970: 1_000)
     let savedSnapshots = LockIsolated<[HeartRateRecordingSnapshot]>([])
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -572,7 +572,7 @@ struct HeartRateFeatureTests {
     let now = Date(timeIntervalSince1970: 1_000)
     let savedSnapshots = LockIsolated<[HeartRateRecordingSnapshot]>([])
     var state = HeartRateFeature.State()
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     state.currentSegment = 2
     state.isStreamInterrupted = true
     state.nextSampleID = 8
@@ -626,7 +626,7 @@ struct HeartRateFeatureTests {
     let scanCalls = CallCounter()
     var state = HeartRateFeature.State()
     state.beatsPerMinute = 72
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -644,8 +644,8 @@ struct HeartRateFeatureTests {
 
     await clock.advance(by: .seconds(1))
     await store.receive(\.retryDelayElapsed)
-    await store.send(.eventReceived(.connected(name: "PulseStream Mac"))) {
-      $0.connection = .connected(name: "PulseStream Mac")
+    await store.send(.eventReceived(.connected(name: "PulseStream Broadcaster"))) {
+      $0.connection = .connected(name: "PulseStream Broadcaster")
       $0.retryAttempt = 0
     }
     await store.finish()
@@ -707,7 +707,7 @@ struct HeartRateFeatureTests {
     let clock = TestClock()
     var state = HeartRateFeature.State()
     state.beatsPerMinute = 72
-    state.connection = .connected(name: "PulseStream Mac")
+    state.connection = .connected(name: "PulseStream Broadcaster")
     let store = TestStore(initialState: state) {
       HeartRateFeature()
     } withDependencies: {
@@ -860,8 +860,8 @@ struct HeartRateFeatureTests {
     await store.send(.eventReceived(.scanning)) {
       $0.connection = .scanning
     }
-    await store.send(.eventReceived(.connecting(name: "PulseStream Mac"))) {
-      $0.connection = .connecting(name: "PulseStream Mac")
+    await store.send(.eventReceived(.connecting(name: "PulseStream Broadcaster"))) {
+      $0.connection = .connecting(name: "PulseStream Broadcaster")
     }
     await clock.advance(by: .seconds(10))
     await store.finish()

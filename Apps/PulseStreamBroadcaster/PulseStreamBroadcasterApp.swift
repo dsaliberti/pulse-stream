@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HeartRateBroadcasterApp: App {
+struct PulseStreamBroadcasterApp: App {
   @StateObject private var broadcaster = HeartRatePeripheralManager()
 
   var body: some Scene {

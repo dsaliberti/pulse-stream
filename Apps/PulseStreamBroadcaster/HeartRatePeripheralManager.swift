@@ -267,7 +267,7 @@ extension HeartRatePeripheralManager: CBPeripheralManagerDelegate {
       guard let error else {
         peripheralManager.startAdvertising([
           CBAdvertisementDataServiceUUIDsKey: [Self.heartRateServiceID],
-          CBAdvertisementDataLocalNameKey: "PulseStream Mac",
+          CBAdvertisementDataLocalNameKey: "PulseStream Broadcaster",
         ])
         return
       }

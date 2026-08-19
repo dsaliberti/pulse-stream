@@ -361,7 +361,7 @@ public struct HeartRateView: View {
     case .connected, .connecting, .discovering: "Disconnect"
     case .reconnecting: "Cancel Retry"
     case .scanning: "Stop Scanning"
-    case .bluetoothUnavailable, .disconnected, .failed, .idle: "Scan for Mac"
+    case .bluetoothUnavailable, .disconnected, .failed, .idle: "Scan for Broadcaster"
     }
   }
 
@@ -397,7 +397,7 @@ public struct HeartRateView: View {
     case .idle: "Ready to scan"
     case let .reconnecting(attempt, maximumAttempts, delaySeconds):
       "Connection lost. Retry \(attempt) of \(maximumAttempts) in \(delaySeconds)s…"
-    case .scanning: "Looking for PulseStream Mac…"
+    case .scanning: "Looking for PulseStream Broadcaster…"
     }
   }
 }
@@ -407,7 +407,7 @@ public struct HeartRateView: View {
     store: Store(
       initialState: HeartRateFeature.State(
         beatsPerMinute: 72,
-        connection: .connected(name: "PulseStream Mac")
+        connection: .connected(name: "PulseStream Broadcaster")
       )
     ) {
       HeartRateFeature()

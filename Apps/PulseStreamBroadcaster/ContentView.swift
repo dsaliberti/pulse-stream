@@ -17,7 +17,7 @@ struct ContentView: View {
 
   private var header: some View {
     VStack(alignment: .leading, spacing: 8) {
-      Text("Heart Rate Broadcaster")
+      Text("PulseStream Broadcaster")
         .font(.largeTitle.bold())
       Label(broadcaster.status.title, systemImage: statusSymbol)
         .foregroundStyle(statusColor)

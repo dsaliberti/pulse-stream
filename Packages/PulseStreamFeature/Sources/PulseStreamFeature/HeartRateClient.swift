@@ -22,7 +22,7 @@ public struct HeartRateClient: Sendable {
       case let .connectionFailed(description):
         description ?? "Connection failed"
       case .discoveryTimedOut:
-        "PulseStream Mac wasn’t found"
+        "PulseStream Broadcaster wasn’t found"
       case .invalidMeasurement:
         "Heart rate measurement could not be decoded"
       case let .measurementUnavailable(description):
@@ -111,7 +111,7 @@ private final class LiveHeartRateCentral: NSObject {
 
   private var centralManager: CBCentralManager!
   private var continuation: AsyncStream<HeartRateClient.Event>.Continuation?
-  private var deviceName = "PulseStream Mac"
+  private var deviceName = "PulseStream Broadcaster"
   private var eventStreamID = 0
   private var peripheral: CBPeripheral?
   private var scanRequested = false
@@ -242,7 +242,7 @@ extension LiveHeartRateCentral: CBCentralManagerDelegate {
       deviceName =
         advertisedName
         ?? peripheral.name
-        ?? "PulseStream Mac"
+        ?? "PulseStream Broadcaster"
       self.peripheral = peripheral
       peripheral.delegate = self
       continuation?.yield(.connecting(name: deviceName))
