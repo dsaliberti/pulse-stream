@@ -1,6 +1,6 @@
 # PulseStream
 
-[![Testing](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml/badge.svg)](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml)
+[![Testing](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml/badge.svg)](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml) [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-F05138?logo=swift&logoColor=white)](https://www.swift.org/) ![Platforms](https://img.shields.io/badge/Platforms-iOS%2026%20%7C%20macOS%2014-000000?logo=apple&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 PulseStream is an end-to-end Bluetooth Low Energy showcase built with Swift 6,
 SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
