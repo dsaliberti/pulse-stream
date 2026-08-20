@@ -1,11 +1,17 @@
 # PulseStream
 
+[![Testing](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml/badge.svg)](https://github.com/dsaliberti/pulse-stream/actions/workflows/Testing.yaml)
+
 PulseStream is an end-to-end Bluetooth Low Energy showcase built with Swift 6,
 SwiftUI, CoreBluetooth, Swift Charts, and the Point-Free ecosystem. A native
 macOS peripheral publishes live heart-rate notifications, while a native iOS
 central discovers, connects, records, restores, and diagnoses the stream.
 
 https://github.com/user-attachments/assets/9599d1ae-b6f8-4ec1-af11-42edc32c2021
+
+> [!NOTE]
+> PulseStream generates simulated heart-rate measurements for engineering
+> demonstration purposes. It is not a medical device.
 
 The project follows the
 [Bluetooth SIG Heart Rate Service 1.0 specification](https://www.bluetooth.com/specifications/specs/heart-rate-service-1-0/)
