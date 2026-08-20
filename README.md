@@ -120,21 +120,6 @@ CoreBluetooth peripherals cannot directly disconnect a central. The Mac app's
 (GATT) service—the standard BLE structure containing services and
 characteristics—to exercise the client's real invalidation and recovery path.
 
-## Build from Terminal
-
-Commands use the currently selected stable Xcode command-line tools:
-
-```sh
-xcodebuild -workspace PulseStream.xcworkspace \
-  -scheme PulseStreamBroadcaster \
-  -destination 'platform=macOS' build
-
-xcodebuild -workspace PulseStream.xcworkspace \
-  -scheme PulseStream \
-  -destination 'generic/platform=iOS' \
-  CODE_SIGNING_ALLOWED=NO build
-```
-
 ## Tests
 
 ```sh
